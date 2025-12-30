@@ -401,19 +401,6 @@ async def rps(interaction: discord.Interaction, choice: str):
     await interaction.response.send_message(embed=embed)
 
     # user_id -> { "YYYY-MM": warn_count }
-    WARNINGS = defaultdict(lambda: defaultdict(int))
-
-def load_warnings():
-    if WARN_FILE.exists():
-        with open(WARN_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_warnings(data):
-    with open(WARN_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
-
-WARNINGS = load_warnings()
 
 @bot.command(name="warn")
 @commands.has_permissions(moderate_members=True)

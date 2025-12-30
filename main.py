@@ -23,29 +23,11 @@ def home():
     return "Bot is running"
 
 def run_web():
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
 
 threading.Thread(target=run_web).start()
-
-async def check_unmutes():
-    await bot.wait_until_ready()
-
-    for guild in bot.guilds:
-        for member in guild.members:
-            if member.timed_out_until:
-                if member.timed_out_until < datetime.utcnow():
-                    try:
-                        await member.timeout(None)
-                        try:
-                            await member.send(
-                                f"🔊 **You have been unmuted**\n\n"
-                                f"Server: **{guild.name}**\n"
-                                f"Reason: Mute expired"
-                            )
-                        except discord.Forbidden:
-                            pass
-                    except discord.Forbidden:
-                        pass
 
 GUILD_ID = 1378407104632586373
 MY_GUILD = discord.Object(id=GUILD_ID)
@@ -88,8 +70,6 @@ def parse_duration(duration: str) -> int:
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-
-    bot.loop.create_task(check_unmutes())
 
     try:
         synced = await bot.tree.sync(guild=MY_GUILD)
@@ -169,7 +149,7 @@ async def giveaway(interaction: discord.Interaction, prize: str, duration: str, 
                     f"🏆 **Winners:** {winners}\n"
                     f"👥 **Entries:** {len(participants)}"
                 )
-                await interaction.edit_original_response(embed=embed)
+                await interaction.edit_original_response(embed=embed, view=view)
                 await button_interaction.response.send_message("You joined the giveaway!", ephemeral=True)
             else:
                 await button_interaction.response.send_message("You have already joined!", ephemeral=True)
@@ -241,27 +221,27 @@ BANNED_WORDS = [
     "motherfucker",
     "mother-fucker",
     "nigg",
-    "kys"
-    "nigger"
-    "nig"
-    "killyourself"
-    "tits"
-    "balls"
-    "twat"
-    "arsehead"
-    "arsehole"
-    "bastard"
-    "bollocks"
-    "brotherfucker"
-    "child-fucker"
-    "cocksucker"
-    "cunt"
-    "dick-head"
-    "dickhead"
-    "dumb-ass"
-    "dumbass"
-    "father-fucker"
-    "fatherfucker"
+    "kys",
+    "nigger",
+    "nig",
+    "killyourself",
+    "tits",
+    "balls",
+    "twat",
+    "arsehead",
+    "arsehole",
+    "bastard",
+    "bollocks",
+    "brotherfucker",
+    "child-fucker",
+    "cocksucker",
+    "cunt",
+    "dick-head",
+    "dickhead",
+    "dumb-ass",
+    "dumbass",
+    "father-fucker",
+    "fatherfucker",
     "wanker"
 ]
 

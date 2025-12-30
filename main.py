@@ -14,6 +14,25 @@ from datetime import datetime
 import json
 from pathlib import Path
 
+WARN_FILE = Path("warnings.json")
+
+MAX_WARNS_PER_MONTH = 5
+MUTE_AT_WARN = 3
+BAN_AT_WARN = 5
+MUTE_DURATION = timedelta(days=7)
+
+def load_warnings():
+    if WARN_FILE.exists():
+        with open(WARN_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_warnings(data):
+    with open(WARN_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+WARNINGS = load_warnings()
+
 WELCOME_CHANNEL_ID = 1378411602990338058
 
 app = Flask(__name__)
@@ -383,15 +402,6 @@ async def rps(interaction: discord.Interaction, choice: str):
 
     # user_id -> { "YYYY-MM": warn_count }
     WARNINGS = defaultdict(lambda: defaultdict(int))
-
-WARN_FILE = Path("warnings.json")
-
-MAX_WARNS_PER_MONTH = 5
-MUTE_AT_WARN = 3
-BAN_AT_WARN = 5
-MUTE_DURATION = timedelta(days=7)
-
-WARNINGS = {}
 
 def load_warnings():
     if WARN_FILE.exists():

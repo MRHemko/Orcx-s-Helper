@@ -197,15 +197,13 @@ async def start_daily_giveaway():
     })
     save_daily(DAILY_DATA)
 
-
-@daily_giveaway_task.before_loop
-async def before_daily():
-    await bot.wait_until_ready()
-
 @tasks.loop(hours=24)
 async def daily_giveaway_task():
     await start_daily_giveaway()
 
+@daily_giveaway_task.before_loop
+async def before_daily():
+    await bot.wait_until_ready()
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")

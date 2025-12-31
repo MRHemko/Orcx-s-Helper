@@ -424,7 +424,7 @@ async def warn(ctx, member: discord.Member, *, reason: str):
 
     warn_count = WARNINGS[user_id]["count"]
 
-    # DM
+    # 📩 DM
     try:
         await member.send(
             f"⚠️ **You have received a warning**\n\n"
@@ -441,7 +441,7 @@ async def warn(ctx, member: discord.Member, *, reason: str):
         f"Warnings: **{warn_count}/{BAN_AT_WARN}**"
     )
 
-    # 🔇 MUTE AT 3
+    # 🔇 AUTO MUTE (3 warnings)
     if warn_count == MUTE_AT_WARN:
         until = datetime.utcnow() + MUTE_DURATION
         await member.timeout(until, reason="Reached 3 warnings")
@@ -459,12 +459,23 @@ async def warn(ctx, member: discord.Member, *, reason: str):
         except discord.Forbidden:
             pass
 
-    # 🔨 BAN AT 5
+    # 🔨 AUTO BAN (5 warnings)
     elif warn_count >= BAN_AT_WARN:
         await member.ban(reason="Reached 5 warnings in one month")
         await ctx.send(
             f"🔨 {member.mention} banned for too many warnings."
         )
+
+@warn.error
+async def warn_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You don't have permission to use this command.")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ Usage: !warn @user <reason>")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("❌ Invalid user. Mention the user correctly.")
+    else:
+        await ctx.send(f"❌ Error: {error}")
 
 @bot.command(name="warnings")
 @commands.has_permissions(moderate_members=True)

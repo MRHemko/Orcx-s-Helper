@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import random
 import asyncio
@@ -32,6 +32,29 @@ def save_warnings(data):
         json.dump(data, f, indent=4)
 
 WARNINGS = load_warnings()
+
+DAILY_FILE = Path("daily.json")
+
+def load_daily():
+    if DAILY_FILE.exists():
+        with open(DAILY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {
+        "message_id": None,
+        "end_time": None,
+        "participants": []
+    }
+
+def save_daily(data):
+    with open(DAILY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+DAILY_DATA = load_daily()
+
+DAILY_GIVEAWAY_CHANNEL_ID = 1400833986934210634
+DAILY_PRIZE = "🎁 Daily Reward"
+DAILY_WINNERS = 1
+DAILY_DURATION = 86400
 
 WELCOME_CHANNEL_ID = 1378411602990338058
 
@@ -86,9 +109,116 @@ def parse_duration(duration: str) -> int:
     else:
         raise ValueError("Invalid duration! Use s, m, h, or d.")
 
+async def start_daily_giveaway():
+    channel = await bot.fetch_channel(DAILY_GIVEAWAY_CHANNEL_ID)
+    if channel is None:
+        return
+
+    participants = [
+        bot.get_user(int(uid))
+        for uid in DAILY_DATA.get("participants", [])
+        if bot.get_user(int(uid)) is not None
+    ]
+
+    end_time = datetime.now(timezone.utc) + timedelta(seconds=DAILY_DURATION)
+    end_timestamp = int(end_time.timestamp())
+
+    embed = discord.Embed(
+        title="🎉 DAILY GIVEAWAY 🎉",
+        description=(
+            f"🎁 **Prize:** {DAILY_PRIZE}\n"
+            f"⏰ **Ends:** <t:{end_timestamp}:R>\n"
+            f"🏆 **Winners:** {DAILY_WINNERS}\n"
+            f"👥 **Entries:** {len(participants)}"
+        ),
+        color=discord.Color.gold()
+    )
+
+    class DailyView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=DAILY_DURATION)
+
+        @discord.ui.button(label="Join", style=discord.ButtonStyle.green, emoji="🎉")
+        async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if str(interaction.user.id) not in DAILY_DATA["participants"]:
+                DAILY_DATA["participants"].append(str(interaction.user.id))
+                save_daily(DAILY_DATA)
+
+                participants.append(interaction.user)
+
+                embed.description = (
+                    f"🎁 **Prize:** {DAILY_PRIZE}\n"
+                    f"⏰ **Ends:** <t:{end_timestamp}:R>\n"
+                    f"🏆 **Winners:** {DAILY_WINNERS}\n"
+                    f"👥 **Entries:** {len(participants)}"
+                )
+                await interaction.message.edit(embed=embed, view=self)
+                await interaction.response.send_message(
+                    "You joined the daily giveaway!", ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "You already joined!", ephemeral=True
+                )
+
+    view = DailyView()
+    msg = await channel.send(embed=embed, view=view)
+
+    # ✅ tallenna daily state OIKEASSA kohdassa
+    DAILY_DATA["message_id"] = msg.id
+    DAILY_DATA["end_time"] = end_timestamp
+    if "participants" not in DAILY_DATA:
+        DAILY_DATA["participants"] = []
+    save_daily(DAILY_DATA)
+
+    await asyncio.sleep(DAILY_DURATION)
+
+    for item in view.children:
+        item.disabled = True
+    await msg.edit(view=view)
+
+    if participants:
+        winner = random.choice(participants)
+        await channel.send(
+            f"🎉 **Daily Giveaway Ended!** 🎉\n"
+            f"Winner: {winner.mention}\n"
+            f"Prize: **{DAILY_PRIZE}**\n"
+            f"Please create a ticket in <#1399019189729099909> to claim your prize!"
+        )
+    else:
+        await channel.send("😢 No one joined today's daily giveaway.")
+
+    # ✅ tyhjennä daily.json VASTA lopussa
+    DAILY_DATA.clear()
+    DAILY_DATA.update({
+        "message_id": None,
+        "end_time": None,
+        "participants": []
+    })
+    save_daily(DAILY_DATA)
+
+
+@daily_giveaway_task.before_loop
+async def before_daily():
+    await bot.wait_until_ready()
+
+@tasks.loop(hours=24)
+async def daily_giveaway_task():
+    await start_daily_giveaway()
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+
+    if not daily_giveaway_task.is_running():
+        daily_giveaway_task.start()
+
+    # ⛔ estä tupla daily
+    if DAILY_DATA.get("end_time"):
+        now = int(datetime.now(timezone.utc).timestamp())
+        if now < DAILY_DATA["end_time"]:
+            print("Daily giveaway already running, skipping start.")
+            return
 
     try:
         synced = await bot.tree.sync(guild=MY_GUILD)
@@ -195,7 +325,6 @@ async def giveaway(interaction: discord.Interaction, prize: str, duration: str, 
             f"Congratulations {winner_mentions}!\n"
             f"You won **{prize}** 🎁\n"
             f"Please create a ticket in <#1399019189729099909> to claim your prize!"
-            # ticket channel
         )
     else:
         await interaction.channel.send(

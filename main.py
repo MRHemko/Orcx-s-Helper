@@ -13,6 +13,7 @@ from collections import defaultdict
 from datetime import datetime
 import json
 from pathlib import Path
+import io
 
 WARN_FILE = Path("warnings.json")
 
@@ -256,7 +257,7 @@ async def on_member_join(member: discord.Member):
     description="Start a giveaway with a join button",
     guild=MY_GUILD
 )
-@app_commands.checks.has_role("Staff")
+@app_commands.checks.has_role("Giveaway")
 async def giveaway(interaction: discord.Interaction, prize: str, duration: str, winners: int):
     participants = []
 
@@ -348,7 +349,8 @@ STAFF_ROLES = [
     "Partner Manager",
     "💸Staff Manager Trainee",
     "🛠️Junior Admin",
-    "SrMod"
+    "SrMod",
+    "Giveaway"
 ]
 
 BANNED_WORDS = [
@@ -486,12 +488,14 @@ async def on_message(message: discord.Message):
 
 # --- Rock Paper Scissors (global slash command) ---
 @bot.tree.command(
-    name="rps",
-    description="Play Rock, Paper, Scissors with the bot"
+        name="rps",
+        description="Play Rock, Paper, Scissors with the bot",
+        guild=MY_GUILD
 )
 @app_commands.describe(
-    choice="Your choice: rock, paper, or scissors"
+        choice="Your choice: rock, paper, or scissors"
 )
+
 async def rps(interaction: discord.Interaction, choice: str):
     choice = choice.lower()
     if choice not in ["rock", "paper", "scissors"]:
@@ -626,6 +630,112 @@ async def clearwarns(ctx, member: discord.Member):
     WARNINGS.pop(str(member.id), None)
     save_warnings(WARNINGS)
     await ctx.send(f"✅ Cleared warnings for {member.mention}.")
+
+TICKET_CATEGORY_ID = 1399019150529134602
+TRANSCRIPT_CHANNEL_ID = 1444618133448032388
+
+SUPPORT_ROLE_ID = 1444614803518914752
+PARTNER_ROLE_ID = 1444614803518914752
+
+# ---------- TRANSCRIPT ----------
+async def create_transcript(channel):
+    buffer = io.StringIO()
+    async for msg in channel.history(limit=None, oldest_first=True):
+        buffer.write(f"[{msg.created_at}] {msg.author}: {msg.content}\n")
+    buffer.seek(0)
+    return discord.File(fp=buffer, filename=f"{channel.name}.txt")
+
+# ---------- CLOSE BUTTON ----------
+class CloseView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger)
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        transcript = await create_transcript(interaction.channel)
+
+        log = discord.utils.get(interaction.guild.text_channels, name=LOG_CHANNEL)
+        if log:
+            await log.send(
+                content=f"Ticket closed: **{interaction.channel.name}**",
+                file=transcript
+            )
+
+        await interaction.channel.delete()
+
+# ---------- MODAL ----------
+class TicketModal(discord.ui.Modal):
+    def __init__(self, ticket_type):
+        super().__init__(title=ticket_type)
+        self.ticket_type = ticket_type
+
+        self.reason = discord.ui.TextInput(
+            label="Describe your request",
+            style=discord.TextStyle.paragraph
+        )
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        category = discord.utils.get(guild.categories, name=TICKET_CATEGORY)
+        if not category:
+            category = await guild.create_category(TICKET_CATEGORY)
+
+        channel = await guild.create_text_channel(
+            name=f"{self.ticket_type.lower().replace(' ', '-')}-{interaction.user.name}",
+            category=category
+        )
+
+        embed = discord.Embed(
+            title=f"{self.ticket_type} Ticket",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed.add_field(name="User", value=interaction.user.mention)
+        embed.add_field(name="Reason", value=self.reason.value)
+
+        await channel.send(embed=embed, view=CloseView())
+        await interaction.response.send_message(
+            f"Ticket created: {channel.mention}",
+            ephemeral=True
+        )
+
+# ---------- BUTTON VIEW ----------
+class TicketPanel(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def open_modal(self, interaction, name):
+        await interaction.response.send_modal(TicketModal(name))
+
+    @discord.ui.button(label="Support", style=discord.ButtonStyle.primary)
+    async def support(self, i, b): await self.open_modal(i, "Support")
+
+    @discord.ui.button(label="Partner", style=discord.ButtonStyle.success)
+    async def partner(self, i, b): await self.open_modal(i, "Partner")
+
+    @discord.ui.button(label="Market", style=discord.ButtonStyle.secondary)
+    async def market(self, i, b): await self.open_modal(i, "Market")
+
+    @discord.ui.button(label="Sponsor Giveaway", style=discord.ButtonStyle.secondary)
+    async def sponsor(self, i, b): await self.open_modal(i, "Sponsor Giveaway")
+
+    @discord.ui.button(label="Giveaway Claim", style=discord.ButtonStyle.secondary)
+    async def claim(self, i, b): await self.open_modal(i, "Giveaway Claim")
+
+    @discord.ui.button(label="Media", style=discord.ButtonStyle.secondary)
+    async def media(self, i, b): await self.open_modal(i, "Media")
+
+# ---------- COMMAND ----------
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ticketpanel(ctx):
+    embed = discord.Embed(
+        title="🎫 Ticket System",
+        description="Select the ticket type below",
+        color=discord.Color.dark_green()
+    )
+    await ctx.send(embed=embed, view=TicketPanel())
 
 # --- Run bot ---
 bot.run(token, log_handler=handler, log_level=logging.DEBUG)

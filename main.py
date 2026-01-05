@@ -725,27 +725,37 @@ class MediaModal(discord.ui.Modal, title="Media Ticket"):
 # GIVEAWAY CLAIM FLOW
 # =========================
 
-class GiveawayClaimView(discord.ui.View):
-    timeout = 300
+    class GiveawayClaimView(discord.ui.View):
+        timeout = 300
 
-    def __init__(self):
-        super().__init__()
-        self.channel = None
-        self.host = None
+        def __init__(self):
+            super().__init__()
+            self.channel = None
+            self.host = None
 
-    @discord.ui.channel_select(
-        placeholder="Select giveaway channel",
-        channel_types=[discord.ChannelType.text]
+        @discord.ui.select(
+            placeholder="Select giveaway channel",
+            options=[],
+            custom_id="select_channel"
+        )
+        async def select_channel(self, interaction: discord.Interaction, select: discord.ui.Select):
+            # suodata kanavat manuaalisesti
+            channel_id = int(select.values[0])
+            channel = interaction.guild.get_channel(channel_id)
+            if channel.type != discord.ChannelType.text:
+                await interaction.response.send_message("❌ Select a text channel", ephemeral=True)
+                return
+            self.channel = channel
+            await interaction.response.defer(ephemeral=True)
+
+    @discord.ui.select(
+        placeholder="Select giveaway host (staff)",
+        options=[],  # täytä käyttäjillä manuaalisesti, jos haluat
+        custom_id="select_host"
     )
-    async def select_channel(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
-        self.channel = select.values[0]
-        await interaction.response.defer(ephemeral=True)
-
-    @discord.ui.user_select(
-        placeholder="Select giveaway host (staff)"
-    )
-    async def select_host(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
-        member = interaction.guild.get_member(select.values[0].id)
+    async def select_host(self, interaction: discord.Interaction, select: discord.ui.Select):
+        user_id = int(select.values[0])
+        member = interaction.guild.get_member(user_id)
         if not any(r.id == STAFF_ROLE_ID for r in member.roles):
             await interaction.response.send_message("❌ User is not staff.", ephemeral=True)
             return

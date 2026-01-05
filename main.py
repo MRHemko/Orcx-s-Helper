@@ -727,69 +727,88 @@ class MediaModal(discord.ui.Modal, title="Media Ticket"):
 # =========================
 # GIVEAWAY CLAIM FLOW
 # =========================#
+
 class GiveawayClaimView(discord.ui.View):
+    timeout = 300
+
     def __init__(self, guild: discord.Guild):
         super().__init__()
 
-        channel_options = [
-            discord.SelectOption(
-                label=channel.name,
-                value=str(channel.id)
-            )
-            for channel in guild.text_channels[:25]
+        channel_select = self.children[0]
+        channel_select.options = [
+            discord.SelectOption(label=ch.name, value=str(ch.id))
+            for ch in guild.text_channels
+            if "giveaway" in ch.name.lower()
         ]
 
-        self.select_channel.options = channel_options
+    @discord.ui.select(
+        placeholder="Select giveaway channel",
+        min_values=1,
+        max_values=1,
+        options=[],  # täytetään dynaamisesti
+        custom_id="giveaway_channel"
+    )
+    async def select_channel(self, interaction: discord.Interaction, select: discord.ui.Select):
+        channel_id = int(select.values[0])
+        channel = interaction.guild.get_channel(channel_id)
 
-        @discord.ui.select(
-            placeholder="Select giveaway channel",
-            custom_id="select_channel"
-        )
-        async def select_channel(self, interaction: discord.Interaction, select: discord.ui.Select):
-            channel_id = int(select.values[0])
-            channel = interaction.guild.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "❌ Please select a text channel.",
+                ephemeral=True
+            )
+            return
 
-            if channel is None or channel.type != discord.ChannelType.text:
-                await interaction.response.send_message(
-                    "❌ Please select a valid text channel.",
-                    ephemeral=True
-                )
-                return
-
-            self.channel = channel
-            await interaction.response.defer(ephemeral=True)
+        self.channel = channel
+        await interaction.response.defer(ephemeral=True)
 
     @discord.ui.select(
         placeholder="Select giveaway host (staff)",
-        options=[],  # täytä käyttäjillä manuaalisesti, jos haluat
-        custom_id="select_host"
+        min_values=1,
+        max_values=1,
+        options=[],
+        custom_id="giveaway_host"
     )
     async def select_host(self, interaction: discord.Interaction, select: discord.ui.Select):
-        user_id = int(select.values[0])
-        member = interaction.guild.get_member(user_id)
-        if not any(r.id == STAFF_ROLE_ID for r in member.roles):
-            await interaction.response.send_message("❌ User is not staff.", ephemeral=True)
+        member_id = int(select.values[0])
+        member = interaction.guild.get_member(member_id)
+
+        if not member or not any(r.id == STAFF_ROLE_ID for r in member.roles):
+            await interaction.response.send_message(
+                "❌ Selected user is not staff.",
+                ephemeral=True
+            )
             return
+
         self.host = member
         await interaction.response.defer(ephemeral=True)
 
-    @discord.ui.button(label="Continue", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.success)
     async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.channel or not self.host:
-            await interaction.response.send_message("❌ Select channel and host.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Please select both channel and host.",
+                ephemeral=True
+            )
             return
 
-        await interaction.response.send_modal(GiveawayClaimModal(self.channel, self.host))
-
+        await interaction.response.send_modal(
+            GiveawayClaimModal(self.channel, self.host)
+        )
 
 class GiveawayClaimModal(discord.ui.Modal, title="Giveaway Claim"):
     ign = discord.ui.TextInput(label="Your IGN")
     amount = discord.ui.TextInput(label="Prize amount")
 
-    def __init__(self, channel, host):
+    def __init__(self, guild: discord.Guild):
         super().__init__()
-        self.channel = channel
-        self.host = host
+
+        channel_select = self.children[0]
+        channel_select.options = [
+            discord.SelectOption(label=ch.name, value=str(ch.id))
+            for ch in guild.text_channels
+            if "giveaway" in ch.name.lower()
+        ]
 
     async def on_submit(self, interaction: discord.Interaction):
         embed = discord.Embed(title="🎁 Giveaway Claim", color=discord.Color.orange())
@@ -913,10 +932,7 @@ class TicketPanelView(discord.ui.View):
     @discord.ui.button(label="🎁 Giveaway Claim", style=discord.ButtonStyle.success)
     async def giveaway_claim(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            "Please select giveaway details:",
-            view=GiveawayClaimView(interaction.guild),
-            ephemeral=True
-        )
+    "Please provide giveaway details:", view=GiveawayClaimView(), ephemeral=True)
 
     @discord.ui.button(label="🎥 Media", style=discord.ButtonStyle.secondary)
     async def media(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -951,7 +967,7 @@ embed = discord.Embed(
         "> Click **🎁 Giveaway Claim** to continue.\n\n"
 
         "### 🎥 Media / VIP\n"
-        "> Applying for Media or VIP on DonutSMP?\n"
+        "> Applying for Media or VIP?\n"
         "> Click **🎥 Media** to apply.\n\n"
 
         "### 💰 Sponsor Giveaway\n"
@@ -1005,7 +1021,7 @@ async def ticketpanel_prefix(ctx):
             "> Click **🎁 Giveaway Claim** to continue.\n\n"
 
             "### 🎥 Media / VIP\n"
-            "> Applying for Media or VIP on DonutSMP?\n"
+            "> Applying for Media or VIP?\n"
             "> Click **🎥 Media** to apply.\n\n"
 
             "### 💰 Sponsor Giveaway\n"

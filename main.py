@@ -205,9 +205,12 @@ async def daily_giveaway_task():
 @daily_giveaway_task.before_loop
 async def before_daily():
     await bot.wait_until_ready()
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user}")
+
+    @bot.event
+    async def on_ready():
+        await bot.add_cog(TicketPanel(bot))
+        await bot.tree.sync(guild=MY_GUILD)
+        print("TicketPanel loaded")
 
     if not daily_giveaway_task.is_running():
         daily_giveaway_task.start()
@@ -725,13 +728,13 @@ class MediaModal(discord.ui.Modal, title="Media Ticket"):
 # GIVEAWAY CLAIM FLOW
 # =========================
 
-    class GiveawayClaimView(discord.ui.View):
-        timeout = 300
+class GiveawayClaimView(discord.ui.View):
+    timeout = 300
 
-        def __init__(self):
-            super().__init__()
-            self.channel = None
-            self.host = None
+    def __init__(self):
+        super().__init__()
+        self.channel = None
+        self.host = None
 
         @discord.ui.select(
             placeholder="Select giveaway channel",
@@ -907,9 +910,10 @@ class TicketPanelView(discord.ui.View):
         elif t == "giveaway_claim":
             await interaction.response.send_message(
                 "Select giveaway details:",
-                view=GiveawayClaimModal(),
+                view=GiveawayClaimView(),
                 ephemeral=True
             )
+
 
 # =========================
 # COG
@@ -932,6 +936,15 @@ class TicketPanel(commands.Cog):
 async def setup(bot):
     await bot.add_cog(TicketPanel(bot))
 
+@bot.command(name="ticketpanel")
+@commands.has_permissions(administrator=True)
+async def ticketpanel_prefix(ctx):
+    embed = discord.Embed(
+        title="🎫 Create a Ticket",
+        description="Select a ticket type below",
+        color=discord.Color.blurple()
+    )
+    await ctx.send(embed=embed, view=TicketPanelView())
 
 @bot.command(name="warnings")
 @commands.has_permissions(moderate_members=True)

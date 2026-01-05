@@ -608,6 +608,533 @@ async def warn_error(ctx, error):
     else:
         await ctx.send(f"❌ Error: {error}")
 
+TICKET_FORUM_ID = 1399019189729099909
+TRANSCRIPT_LOG_CHANNEL_ID = 1444618133448032388
+
+SUPPORT_ROLE_ID = 1456322413259133173
+PARTNER_ROLE_ID = 1456322513637212373
+STAFF_ROLE_ID = 1444614803518914752
+
+STAFF_PINGS = {
+    "support": 1456322413259133173,
+    "partner": 1456322513637212373,
+    "market": 1444614803518914752,
+    "sponsor giveaway": 1444614803518914752,
+    "giveaway claim": 1444614803518914752,
+    "media": 1444614803518914752
+}
+
+TICKET_TAGS = {
+    "support": 1457710146124910735,
+    "partner": 1457710400287146024,
+    "market": 1457710189196087378,
+    "sponsor giveaway": 1457710275003158669,
+    "giveaway claim": 1457710230761771072,
+    "media": 1457710338882535648
+}
+
+class SupportModal(discord.ui.Modal, title="Support Ticket"):
+    reason = discord.ui.TextInput(label="Why do you need support?", required=True)
+    ign = discord.ui.TextInput(label="IGN (if refund)", required=False)
+    amount = discord.ui.TextInput(label="Amount owed (if refund)", required=False)
+
+    async def on_submit(self, interaction):
+        embed = discord.Embed(title="🛠 Support Ticket", color=discord.Color.blurple())
+        embed.add_field(name="Reason", value=self.reason.value, inline=False)
+        embed.add_field(name="IGN", value=self.ign.value or "N/A")
+        embed.add_field(name="Amount", value=self.amount.value or "N/A")
+
+        await create_ticket(
+            interaction,
+            "support",
+            embed,
+            staff_ping=f"<@&{SUPPORT_ROLE_ID}>"
+        )
+
+class PartnerModal(discord.ui.Modal, title="Partner Application"):
+    members = discord.ui.TextInput(label="How many members does your server have?")
+    read = discord.ui.TextInput(label="Have you read partner requirements?")
+    donut = discord.ui.TextInput(label="Is your server DonutSMP related?")
+    rules = discord.ui.TextInput(label="Does your server follow DonutSMP rules?")
+
+    async def on_submit(self, interaction):
+        embed = discord.Embed(title="🤝 Partner Application", color=discord.Color.green())
+        embed.add_field(name="Members", value=self.members.value)
+        embed.add_field(name="Read Requirements", value=self.read.value)
+        embed.add_field(name="DonutSMP Related", value=self.donut.value)
+        embed.add_field(name="Follows Rules", value=self.rules.value)
+
+        await create_ticket(
+            interaction,
+            "partner",
+            embed,
+            staff_ping=f"<@&{PARTNER_ROLE_ID}"
+        )
+class MarketModal(discord.ui.Modal, title="Market Ticket"):
+    buy_sell = discord.ui.TextInput(label="Buying or selling?")
+    prices = discord.ui.TextInput(label="Have you read spawner prices?")
+    amount = discord.ui.TextInput(label="How many?")
+    spawner = discord.ui.TextInput(label="Spawner type?")
+    agree = discord.ui.TextInput(label="Agree scamming = ban?")
+
+    async def on_submit(self, interaction):
+        embed = discord.Embed(title="💰 Market Ticket", color=discord.Color.gold())
+        embed.add_field(name="Type", value=self.buy_sell.value)
+        embed.add_field(name="Prices Read", value=self.prices.value)
+        embed.add_field(name="Amount", value=self.amount.value)
+        embed.add_field(name="Spawner", value=self.spawner.value)
+        embed.add_field(name="Agreement", value=self.agree.value)
+
+        await create_ticket(
+            interaction,
+            "market",
+            embed,
+            staff_ping=f"@&{STAFF_ROLE_ID}"
+            )
+
+class SponsorModal(discord.ui.Modal, title="Sponsor Giveaway"):
+    amount = discord.ui.TextInput(label="How much do you sponsor?")
+    ign = discord.ui.TextInput(label="Your IGN")
+
+    async def on_submit(self, interaction):
+        embed = discord.Embed(title="🎁 Sponsor Giveaway", color=discord.Color.purple())
+        embed.add_field(name="Amount", value=self.amount.value)
+        embed.add_field(name="IGN", value=self.ign.value)
+
+        await create_ticket(
+            interaction,
+            "sponsor giveaway",
+            embed,
+            staff_ping=f"@&{STAFF_ROLE_ID}"
+            )
+
+class MediaModal(discord.ui.Modal, title="Media Ticket"):
+    ign = discord.ui.TextInput(label="Your IGN")
+    proof = discord.ui.TextInput(label="Proof of MC ownership", style=discord.TextStyle.paragraph)
+
+    async def on_submit(self, interaction):
+        embed = discord.Embed(title="📸 Media Ticket", color=discord.Color.teal())
+        embed.add_field(name="IGN", value=self.ign.value)
+        embed.add_field(name="Proof", value=self.proof.value)
+
+        await create_ticket(
+            interaction,
+            "media",
+            embed,
+            staff_ping=f"@&{STAFF_ROLE_ID}"
+            )
+
+class GiveawayClaimView(discord.ui.View):
+    timeout = 300
+
+    def __init__(self):
+        super().__init__()
+        self.selected_channel = None
+        self.selected_host = None
+
+    @discord.ui.channel_select(
+        placeholder="Select the channel where the giveaway was hosted",
+        channel_types=[discord.ChannelType.text]
+    )
+    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        self.selected_channel = select.values[0]
+        await interaction.response.defer(ephemeral=True)
+
+    @discord.ui.user_select(
+        placeholder="Select the giveaway host (staff only)"
+    )
+    async def host_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        member = interaction.guild.get_member(select.values[0].id)
+        if not any(r.id == STAFF_ROLE_ID for r in member.roles):
+            await interaction.response.send_message(
+                "❌ Selected user is not staff.", ephemeral=True
+            )
+            return
+
+        self.selected_host = member
+        await interaction.response.defer(ephemeral=True)
+
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.green)
+    async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.selected_channel or not self.selected_host:
+            await interaction.response.send_message(
+                "❌ Please select both a channel and a host.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(
+            GiveawayClaimModal(self.selected_channel, self.selected_host)
+        )
+
+class GiveawayClaimModal(discord.ui.Modal, title="Giveaway Claim"):
+    ign = discord.ui.TextInput(label="What's your IGN?")
+    amount = discord.ui.TextInput(label="How much did you win?")
+
+    def __init__(self, channel, host):
+        super().__init__()
+        self.channel = channel
+        self.host = host
+
+    async def on_submit(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="🎉 Giveaway Claim",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="IGN", value=self.ign.value, inline=False)
+        embed.add_field(name="Prize Amount", value=self.amount.value, inline=False)
+        embed.add_field(name="Giveaway Channel", value=self.channel.mention, inline=False)
+        embed.add_field(name="Hosted By", value=self.host.mention, inline=False)
+
+        await create_ticket(interaction, "Giveaway Claim", embed)
+
+TICKET_TYPES = {
+    "support": "🛠 Support",
+    "partner": "🤝 Partner",
+    "market": "🛒 Market",
+    "sponsor": "💰 Sponsor giveaway",
+    "giveaway": "🎁 Giveaway Claim",
+    "media": "🎥 Media"
+}
+
+def get_ticket_permissions(guild, user, ticket_type: str):
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        user: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+    }
+
+    staff_role = guild.get_role(STAFF_ROLE_ID)
+
+    if staff_role:
+        overwrites[staff_role] = discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            manage_threads=True
+        )
+
+    if ticket_type == "Support":
+        role = guild.get_role(SUPPORT_ROLE_ID)
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True
+            )
+
+    if ticket_type == "Partner":
+        role = guild.get_role(PARTNER_ROLE_ID)
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True
+            )
+
+    return overwrites
+
+class TicketCreateView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.ticket_type = None
+        self.selected_channel = None
+
+    @discord.ui.select(
+        placeholder="Select ticket type",
+        options=[
+            discord.SelectOption(label=v, value=k)
+            for k, v in TICKET_TYPES.items()
+        ]
+    )
+    async def ticket_type_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.ticket_type = select.values[0]
+        await interaction.response.defer(ephemeral=True)
+
+    @discord.ui.channel_select(
+        placeholder="Select related channel (optional)",
+        channel_types=[discord.ChannelType.text],
+        required=False
+    )
+
+    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        self.selected_channel = select.values[0] if select.values else None
+        await interaction.response.defer(ephemeral=True)
+
+        async def create_ticket(interaction, ticket_type, embed):
+            forum = interaction.guild.get_channel(TICKET_FORUM_ID)
+
+            applied_tags = []
+            tag_id = TICKET_TAGS.get(ticket_type.lower())
+            if tag_id:
+                tag = forum.get_tag(tag_id)
+                if tag:
+                    applied_tags.append(tag)
+
+            thread = await forum.create_thread(
+                name=f"{ticket_type} | {interaction.user}",
+                content=interaction.user.mention,
+                embed=embed,
+                applied_tags=applied_tags
+            )
+
+            # 🔔 STAFF PING
+            role_id = STAFF_PINGS.get(ticket_type.lower())
+            ping_text = f"<@&{role_id}>" if role_id else ""
+
+            await thread.send(
+                content=f"{ping_text}\n📌 **New {ticket_type} ticket created**",
+                view=TicketControls()
+            )
+
+            await interaction.response.send_message(
+                f"✅ Ticket created: {thread.mention}",
+                ephemeral=True
+            )
+
+            if not self.ticket_type:
+                await interaction.response.send_message(
+                    "❌ Please select a ticket type first.",
+                    ephemeral=True
+                )
+                return
+
+            # --- OPEN CORRECT MODAL ---
+            if self.ticket_type == "support":
+                await interaction.response.send_modal(SupportModal())
+                return
+
+            if self.ticket_type == "partner":
+                await interaction.response.send_modal(PartnerModal())
+                return
+
+            if self.ticket_type == "market":
+                await interaction.response.send_modal(MarketModal())
+                return
+
+            if self.ticket_type == "sponsor":
+                await interaction.response.send_modal(SponsorModal())
+                return
+
+            if self.ticket_type == "media":
+                await interaction.response.send_modal(MediaModal())
+                return
+
+            if self.ticket_type == "giveaway":
+                await interaction.response.send_message(
+                    "Please complete giveaway details:",
+                    view=GiveawayClaimView(),
+                    ephemeral=True
+                )
+                return
+
+        forum = interaction.guild.get_channel(TICKET_FORUM_ID)
+
+        embed = discord.Embed(
+            title="🎫 Ticket Created",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(name="User", value=interaction.user.mention, inline=False)
+        embed.add_field(name="Type", value=TICKET_TYPES[self.ticket_type], inline=False)
+
+        if self.selected_channel:
+            embed.add_field(name="Related Channel", value=self.selected_channel.mention, inline=False)
+
+        embed.set_footer(text=f"User ID: {interaction.user.id}")
+
+        thread = await forum.create_thread(
+            name=f"{TICKET_TYPES[self.ticket_type]} | {interaction.user}",
+            content=interaction.user.mention,
+            embed=embed,
+            applied_tags=[]
+        )
+
+        await thread.send(
+            view=TicketManageView(interaction.user.id)
+        )
+
+        await interaction.response.send_message(
+            f"Ticket created: {thread.mention}",
+            ephemeral=True
+        )
+
+class TicketManageView(discord.ui.View):
+    def __init__(self, owner_id: int):
+        super().__init__(timeout=None)
+        self.owner_id = owner_id
+        self.claimed_by = None
+
+    def has_staff_role(self, member: discord.Member):
+        return any(
+            r.id in (STAFF_ROLE_ID, SUPPORT_ROLE_ID, PARTNER_ROLE_ID)
+            for r in member.roles
+        )
+
+    @discord.ui.button(label="Claim", style=discord.ButtonStyle.green)
+    async def claim(self, interaction, button):
+        if not any(r.id == STAFF_ROLE_ID for r in interaction.user.roles):
+            await interaction.response.send_message(
+                "❌ Only staff can claim tickets.", ephemeral=True
+            )
+            return
+
+        await interaction.channel.edit(
+            name=f"claimed-{interaction.user.name}"
+        )
+
+        await interaction.channel.send(
+            f"📌 Ticket claimed by {interaction.user.mention}"
+        )
+
+    @discord.ui.button(label="Unclaim", style=discord.ButtonStyle.gray)
+    async def unclaim(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.claimed_by:
+            await interaction.response.send_message("Only claimer can unclaim.", ephemeral=True)
+            return
+
+        self.claimed_by = interaction.user.id
+        await interaction.channel.send("❌ Ticket unclaimed")
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.red)
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.has_staff_role(interaction.user):
+            await interaction.response.send_message("Staff only.", ephemeral=True)
+            return
+
+        messages = []
+        async for msg in interaction.channel.history(oldest_first=True):
+            messages.append(f"[{msg.created_at}] {msg.author}: {msg.content}")
+
+        transcript = "\n".join(messages)
+        file = discord.File(
+            io.StringIO(transcript),
+            filename=f"ticket-{interaction.channel.id}.txt"
+        )
+
+        log_channel = interaction.guild.get_channel(TRANSCRIPT_LOG_CHANNEL_ID)
+
+        close_embed = discord.Embed(
+            title="🔒 Ticket Closed",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+        close_embed.add_field(name="Closed by", value=interaction.user.mention)
+        close_embed.add_field(name="Owner", value=f"<@{self.owner_id}>")
+
+        await log_channel.send(embed=close_embed, file=file)
+
+        await interaction.channel.delete()
+
+class TicketPanelView(discord.ui.View):
+    timeout = None
+
+    @discord.ui.select(
+        placeholder="Select ticket type",
+        options=[discord.SelectOption(label=v, value=k) for k, v in TICKET_TYPES.items()]
+    )
+    async def select(self, interaction, select):
+        t = select.values[0]
+
+        if t == "support":
+            await interaction.response.send_modal(SupportModal())
+        elif t == "partner":
+            await interaction.response.send_modal(PartnerModal())
+        elif t == "market":
+            await interaction.response.send_modal(MarketModal())
+        elif t == "sponsor":
+            await interaction.response.send_modal(SponsorModal())
+        elif t == "media":
+            await interaction.response.send_modal(MediaModal())
+        elif t == "giveaway":
+            await interaction.response.send_message(
+                "Select giveaway details:",
+                view=GiveawayClaimView(),
+                ephemeral=True
+            )
+
+async def create_ticket(interaction, ticket_type: str, embed: discord.Embed):
+
+    forum = interaction.guild.get_channel(TICKET_FORUM_ID)
+
+    overwrites = get_ticket_permissions(
+        interaction.guild,
+        interaction.user,
+        ticket_type
+    )
+
+    thread = await forum.create_thread(
+        name=f"{ticket_type} | {interaction.user}",
+        content=interaction.user.mention,
+        embed=embed,
+        overwrites=overwrites
+    )
+
+    await thread.send(
+        embed=discord.Embed(
+            description="Use the buttons below to manage this ticket.",
+            color=discord.Color.dark_gray()
+        ),
+        view=TicketManageView(interaction.user.id)
+    )
+
+    await interaction.response.send_message(
+        f"✅ Ticket created: {thread.mention}",
+        ephemeral=True
+    )
+
+
+class TicketControls(discord.ui.View):
+    timeout = None
+
+    @discord.ui.button(label="Claim", style=discord.ButtonStyle.green)
+    async def claim(self, interaction, button):
+        await interaction.channel.edit(
+            name=f"claimed-{interaction.user.name}"
+        )
+        await interaction.response.send_message(
+            f"Ticket claimed by {interaction.user.mention}"
+        )
+
+    @discord.ui.button(label="Unclaim", style=discord.ButtonStyle.gray)
+    async def unclaim(self, interaction, button):
+        await interaction.channel.edit(name="unclaimed-ticket")
+        await interaction.response.send_message("Ticket unclaimed.")
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.red)
+    async def close(self, interaction, button):
+        await interaction.response.send_modal(CloseReasonModal())
+
+class CloseReasonModal(discord.ui.Modal, title="Close Ticket"):
+    reason = discord.ui.TextInput(label="Reason for closing", style=discord.TextStyle.paragraph)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        messages = []
+        async for msg in interaction.channel.history(limit=None, oldest_first=True):
+            content = msg.content or ""
+            messages.append(f"[{msg.author}] {content}")
+
+        transcript_text = "\n".join(messages)
+
+        file = discord.File(
+            io.BytesIO(transcript_text.encode()),
+            filename=f"{interaction.channel.name}.txt"
+        )
+
+        log_channel = interaction.guild.get_channel(TRANSCRIPT_LOG_CHANNEL_ID)
+
+        embed = discord.Embed(
+            title="📕 Ticket Closed",
+            color=discord.Color.red(),
+            description=(
+                f"**Closed by:** {interaction.user.mention}\n"
+                f"**Reason:** {self.reason.value}\n\n"
+                f"**Transcript Preview:**\n"
+                f"```{transcript_text[:3500]}```"
+            )
+        )
+
+        await log_channel.send(embed=embed, file=file)
+        await interaction.channel.delete()
+
 @bot.command(name="warnings")
 @commands.has_permissions(moderate_members=True)
 async def warnings(ctx, member: discord.Member):
@@ -630,112 +1157,6 @@ async def clearwarns(ctx, member: discord.Member):
     WARNINGS.pop(str(member.id), None)
     save_warnings(WARNINGS)
     await ctx.send(f"✅ Cleared warnings for {member.mention}.")
-
-TICKET_CATEGORY_ID = 1399019150529134602
-TRANSCRIPT_CHANNEL_ID = 1444618133448032388
-
-SUPPORT_ROLE_ID = 1444614803518914752
-PARTNER_ROLE_ID = 1444614803518914752
-
-# ---------- TRANSCRIPT ----------
-async def create_transcript(channel):
-    buffer = io.StringIO()
-    async for msg in channel.history(limit=None, oldest_first=True):
-        buffer.write(f"[{msg.created_at}] {msg.author}: {msg.content}\n")
-    buffer.seek(0)
-    return discord.File(fp=buffer, filename=f"{channel.name}.txt")
-
-# ---------- CLOSE BUTTON ----------
-class CloseView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger)
-    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        transcript = await create_transcript(interaction.channel)
-
-        log = discord.utils.get(interaction.guild.text_channels, name=LOG_CHANNEL)
-        if log:
-            await log.send(
-                content=f"Ticket closed: **{interaction.channel.name}**",
-                file=transcript
-            )
-
-        await interaction.channel.delete()
-
-# ---------- MODAL ----------
-class TicketModal(discord.ui.Modal):
-    def __init__(self, ticket_type):
-        super().__init__(title=ticket_type)
-        self.ticket_type = ticket_type
-
-        self.reason = discord.ui.TextInput(
-            label="Describe your request",
-            style=discord.TextStyle.paragraph
-        )
-        self.add_item(self.reason)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        category = discord.utils.get(guild.categories, name=TICKET_CATEGORY)
-        if not category:
-            category = await guild.create_category(TICKET_CATEGORY)
-
-        channel = await guild.create_text_channel(
-            name=f"{self.ticket_type.lower().replace(' ', '-')}-{interaction.user.name}",
-            category=category
-        )
-
-        embed = discord.Embed(
-            title=f"{self.ticket_type} Ticket",
-            color=discord.Color.green(),
-            timestamp=datetime.datetime.utcnow()
-        )
-        embed.add_field(name="User", value=interaction.user.mention)
-        embed.add_field(name="Reason", value=self.reason.value)
-
-        await channel.send(embed=embed, view=CloseView())
-        await interaction.response.send_message(
-            f"Ticket created: {channel.mention}",
-            ephemeral=True
-        )
-
-# ---------- BUTTON VIEW ----------
-class TicketPanel(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    async def open_modal(self, interaction, name):
-        await interaction.response.send_modal(TicketModal(name))
-
-    @discord.ui.button(label="Support", style=discord.ButtonStyle.primary)
-    async def support(self, i, b): await self.open_modal(i, "Support")
-
-    @discord.ui.button(label="Partner", style=discord.ButtonStyle.success)
-    async def partner(self, i, b): await self.open_modal(i, "Partner")
-
-    @discord.ui.button(label="Market", style=discord.ButtonStyle.secondary)
-    async def market(self, i, b): await self.open_modal(i, "Market")
-
-    @discord.ui.button(label="Sponsor Giveaway", style=discord.ButtonStyle.secondary)
-    async def sponsor(self, i, b): await self.open_modal(i, "Sponsor Giveaway")
-
-    @discord.ui.button(label="Giveaway Claim", style=discord.ButtonStyle.secondary)
-    async def claim(self, i, b): await self.open_modal(i, "Giveaway Claim")
-
-    @discord.ui.button(label="Media", style=discord.ButtonStyle.secondary)
-    async def media(self, i, b): await self.open_modal(i, "Media")
-
-# ---------- COMMAND ----------
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def ticketpanel(ctx):
-    embed = discord.Embed(
-        title="🎫 Ticket System",
-        description="Select the ticket type below",
-        color=discord.Color.dark_green()
-    )
-    await ctx.send(embed=embed, view=TicketPanel())
 
 # --- Run bot ---
 bot.run(token, log_handler=handler, log_level=logging.DEBUG)

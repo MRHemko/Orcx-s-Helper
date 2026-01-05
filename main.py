@@ -907,7 +907,7 @@ class TicketPanelView(discord.ui.View):
         elif t == "giveaway_claim":
             await interaction.response.send_message(
                 "Select giveaway details:",
-                view=GiveawayClaimView(),
+                view=GiveawayClaimModal(),
                 ephemeral=True
             )
 

@@ -726,28 +726,36 @@ class MediaModal(discord.ui.Modal, title="Media Ticket"):
 
 # =========================
 # GIVEAWAY CLAIM FLOW
-# =========================
-
+# =========================#
 class GiveawayClaimView(discord.ui.View):
-    timeout = 300
-
-    def __init__(self):
+    def __init__(self, guild: discord.Guild):
         super().__init__()
-        self.channel = None
-        self.host = None
+
+        channel_options = [
+            discord.SelectOption(
+                label=channel.name,
+                value=str(channel.id)
+            )
+            for channel in guild.text_channels[:25]
+        ]
+
+        self.select_channel.options = channel_options
 
         @discord.ui.select(
             placeholder="Select giveaway channel",
-            options=[],
             custom_id="select_channel"
         )
         async def select_channel(self, interaction: discord.Interaction, select: discord.ui.Select):
-            # suodata kanavat manuaalisesti
             channel_id = int(select.values[0])
             channel = interaction.guild.get_channel(channel_id)
-            if channel.type != discord.ChannelType.text:
-                await interaction.response.send_message("❌ Select a text channel", ephemeral=True)
+
+            if channel is None or channel.type != discord.ChannelType.text:
+                await interaction.response.send_message(
+                    "❌ Please select a valid text channel.",
+                    ephemeral=True
+                )
                 return
+
             self.channel = channel
             await interaction.response.defer(ephemeral=True)
 
@@ -905,8 +913,8 @@ class TicketPanelView(discord.ui.View):
     @discord.ui.button(label="🎁 Giveaway Claim", style=discord.ButtonStyle.success)
     async def giveaway_claim(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            "Please provide giveaway details:",
-            view=GiveawayClaimView(),
+            "Please select giveaway details:",
+            view=GiveawayClaimView(interaction.guild),
             ephemeral=True
         )
 
@@ -976,10 +984,38 @@ async def setup(bot):
 @commands.has_permissions(administrator=True)
 async def ticketpanel_prefix(ctx):
     embed = discord.Embed(
-        title="🎫 Create a Ticket",
-        description="Select a ticket type below",
+        title="🎫 Orcx's Ocean — Ticket Center",
+        description=(
+            "**Please choose the ticket type that best fits your request.**\n\n"
+
+            "### 👷 Support\n"
+            "> Need help with refunds, issues, or general questions?\n"
+            "> Click **📩 Support** to contact our support team.\n\n"
+
+            "### 🤝 Partnership\n"
+            "> Interested in partnering with Orcx's Ocean?\n"
+            "> Click **🤝 Partner** to submit a partnership request.\n\n"
+
+            "### 🛒 Market\n"
+            "> Want to sell spawners or make a market-related request?\n"
+            "> Click **🛒 Market** to proceed.\n\n"
+
+            "### 🎉 Giveaway Claim\n"
+            "> Won a giveaway and need to claim your prize?\n"
+            "> Click **🎁 Giveaway Claim** to continue.\n\n"
+
+            "### 🎥 Media / VIP\n"
+            "> Applying for Media or VIP on DonutSMP?\n"
+            "> Click **🎥 Media** to apply.\n\n"
+
+            "### 💰 Sponsor Giveaway\n"
+            "> Want to sponsor a giveaway for the community?\n"
+            "> Click **💰 Sponsor Giveaway** to get started."
+        ),
         color=discord.Color.blurple()
     )
+
+    embed.set_footer(text="Orcx's Ocean • Support System")
     await ctx.send(embed=embed, view=TicketPanelView())
 
 @bot.command(name="warnings")

@@ -15,6 +15,68 @@ import json
 from pathlib import Path
 import io
 import aiosqlite
+from dotenv import load_dotenv
+load_dotenv()
+
+import aiohttp
+
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+YOUTUBE_CHANNEL_ID = "UCQOVsPlx7vEP4mEL2usJtMg"
+
+YT_LIVE_CHANNEL_ID = 1378419827902775488
+YT_PING_ROLE_ID = 1403063948093427974
+
+last_live_video_id = None
+
+@tasks.loop(minutes=2)
+async def youtube_live_check():
+    global last_live_video_id
+
+    url = (
+        "https://www.googleapis.com/youtube/v3/search"
+        "?part=snippet"
+        "&channelId={}"
+        "&eventType=live"
+        "&type=video"
+        "&key={}"
+    ).format(YOUTUBE_CHANNEL_ID, YOUTUBE_API_KEY)
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            data = await resp.json()
+
+    if not data.get("items"):
+        last_live_video_id = None
+        return
+
+    video = data["items"][0]
+    video_id = video["id"]["videoId"]
+
+    if video_id == last_live_video_id:
+        return
+
+    last_live_video_id = video_id
+
+    guild = bot.get_guild(GUILD_ID)
+    channel = guild.get_channel(YT_LIVE_CHANNEL_ID)
+    role = guild.get_role(YT_PING_ROLE_ID)
+
+    embed = discord.Embed(
+        title="🔴 YOUTUBE LIVE",
+        description=(
+            f"**{video['snippet']['title']}**\n\n"
+            f"https://youtube.com/watch?v={video_id}"
+        ),
+        color=discord.Color.red()
+    )
+
+    embed.set_thumbnail(url=video["snippet"]["thumbnails"]["high"]["url"])
+
+    await channel.send(
+        content=role.mention if role else None,
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(roles=True)
+    )
 
 WARN_FILE = Path("warnings.json")
 
@@ -209,10 +271,13 @@ async def before_daily():
 
     @bot.event
     async def on_ready():
+        if not youtube_live_check.is_running():
+            youtube_live_check.start()
         await bot.add_cog(TicketPanel(bot))
         await bot.tree.sync(guild=MY_GUILD)
         await init_db()
         print("TicketPanel loaded")
+        print("YouTube live checker running")
 
     if not daily_giveaway_task.is_running():
         daily_giveaway_task.start()
@@ -558,6 +623,14 @@ async def rps(interaction: discord.Interaction, choice: str):
 
     # user_id -> { "YYYY-MM": warn_count }
 
+async def add_warning(user_id, staff_id, reason):
+    async with aiosqlite.connect("bot.db") as db:
+        await db.execute(
+            "INSERT INTO warnings (user_id, reason, staff_id, timestamp) VALUES (?, ?, ?, ?)",
+            (user_id, reason, staff_id, datetime.utcnow().isoformat())
+        )
+        await db.commit()
+
 @bot.command(name="warn")
 @commands.has_permissions(moderate_members=True)
 async def warn(ctx, member: discord.Member, *, reason: str):
@@ -577,6 +650,12 @@ async def warn(ctx, member: discord.Member, *, reason: str):
 
     WARNINGS[user_id]["count"] += 1
     save_warnings(WARNINGS)
+
+    await add_warning(
+        user_id=member.id,
+        staff_id=ctx.author.id,
+        reason=reason
+    )
 
     warn_count = WARNINGS[user_id]["count"]
 

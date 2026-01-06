@@ -14,6 +14,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import io
+import aiosqlite
 
 WARN_FILE = Path("warnings.json")
 
@@ -210,6 +211,7 @@ async def before_daily():
     async def on_ready():
         await bot.add_cog(TicketPanel(bot))
         await bot.tree.sync(guild=MY_GUILD)
+        await init_db()
         print("TicketPanel loaded")
 
     if not daily_giveaway_task.is_running():
@@ -227,6 +229,26 @@ async def before_daily():
         print(f"Synced {len(synced)} guild commands")
     except Exception as e:
         print(e)
+
+async def init_db():
+    async with aiosqlite.connect("bot.db") as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS warnings (
+            user_id INTEGER,
+            reason TEXT,
+            staff_id INTEGER,
+            timestamp TEXT
+        )
+        """)
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS vouches (
+            user_id INTEGER,
+            from_id INTEGER,
+            message TEXT,
+            timestamp TEXT
+        )
+        """)
+        await db.commit()
 
 @bot.event
 async def on_member_join(member: discord.Member):
@@ -888,10 +910,23 @@ async def create_ticket(
     )
 
     # 📌 Lähetä ticketin sisältö
+    staff_ping = ""
+    staff_role_id = STAFF_PINGS.get(ticket_type)
+
+    if staff_role_id:
+        staff_role = guild.get_role(staff_role_id)
+        if staff_role:
+            staff_ping = staff_role.mention
+
     await channel.send(
-        content=f"{interaction.user.mention}",
+        content=f"{staff_ping}\n{interaction.user.mention}",
         embed=embed,
-        view=TicketManageView(interaction.user.id)
+        view=TicketManageView(interaction.user.id),
+        allowed_mentions=discord.AllowedMentions(
+            everyone=False,
+            roles=True,
+            users=True
+        )
     )
 
     # ✅ Vastaa interactioniin (MODAL SAFE)
@@ -1152,6 +1187,147 @@ async def clearwarns(ctx, member: discord.Member):
     WARNINGS.pop(str(member.id), None)
     save_warnings(WARNINGS)
     await ctx.send(f"✅ Cleared warnings for {member.mention}.")
+
+def spawner_prices_embed() -> discord.Embed:
+    embed = discord.Embed(
+        title="💵 Spawner Prices",
+        description="**(We buy from you)**\n"
+                    "<:Skeleton:1449710743086694400> **Skeleton** — 1.4m each\n\n"
+                    "**(We sell to you)**\n"
+                    "<:Skeleton:1449710743086694400> **Skeleton** — 1.6m each\n\n"
+                    "## 📌 Read before buying / selling\n"
+                    "✦ 🚫 We never go first. *(No exceptions)*\n"
+                    "✦ 💵 Prices are **not negotiable**\n"
+                    "✦ 🤔 Don't trust us? Read <#1381209029812162593>\n"
+                    "✦ 🎫 Make a ticket to buy/sell: <#1399019189729099909>\n"
+                    "✦ ⚠️ Only make a ticket if buying/selling **10+ spawners**",
+        color=discord.Color.gold()
+    )
+
+    embed.set_footer(text="Orcx's Ocean • Market System")
+    return embed
+
+@bot.command(name="spawners")
+@commands.has_role(1444614803518914752)
+async def spawners(ctx: commands.Context):
+    await ctx.send(embed=spawner_prices_embed())
+
+@spawners.error
+async def spawners_error(ctx, error):
+    if isinstance(error, commands.MissingRole):
+        await ctx.send("❌ This command is for staff only.")
+
+def rules_embed() -> discord.Embed:
+    embed = discord.Embed(
+        title="📜 Orcx's Ocean — Rules",
+        description=(
+            "### 🌊 Server Rules\n"
+            "• No spamming\n"
+            "• No harassing or abusing\n"
+            "• No sharing others' private information\n"
+            "• No advertisement or promotion\n"
+            "• No racism or discrimination\n"
+            "• No death threats or suicide encouragement\n"
+            "• No alt accounts\n"
+            "• No IRL trading\n"
+            "• No N-word bait\n"
+            "• No staff disrespect (sarcastic or meaningful)\n"
+            "• No NSFW content\n"
+            "• No impersonating\n\n"
+            "🚫 **Doxxing = BAN**\n"
+            "🚫 **Extreme racism = BAN**\n\n"
+            "⏱️ Using **stats command** in <#1378407104632586376> = **1 hour timeout**\n\n"
+            "---\n"
+            "### 🎫 Ticket Rules\n"
+            "• Spam pinging staff in tickets = **1 day mute**\n"
+            "• Do not ask to be paid\n"
+            "• **Quick drop giveaway:** 5 minutes to claim\n"
+            "• **Normal giveaway:** 24 hours to claim\n"
+            "• Proof of winning is **required** or no payment\n\n"
+            "⚠️ **DO NOT ping** <@1444614803518914752>\n\n"
+            "## ❗ If you see someone breaking the rules\n"
+            "Make a ticket here: <#1399019189729099909>"
+        ),
+        color=discord.Color.red()
+    )
+
+    embed.set_footer(text="Orcx's Ocean • Community Guidelines")
+    return embed
+
+@bot.command(name="rules")
+@commands.has_role(STAFF_ROLE_ID)
+async def rules(ctx: commands.Context):
+    await ctx.send(embed=rules_embed())
+
+@rules.error
+async def rules_error(ctx, error):
+    if isinstance(error, commands.MissingRole):
+        await ctx.send("❌ This command is for staff only.")
+
+async def init_db():
+    async with aiosqlite.connect("bot.db") as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS warnings (
+            user_id INTEGER,
+            reason TEXT,
+            staff_id INTEGER,
+            timestamp TEXT
+        )
+        """)
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS vouches (
+            user_id INTEGER,
+            from_id INTEGER,
+            message TEXT,
+            timestamp TEXT
+        )
+        """)
+        await db.commit()
+
+@bot.tree.command(name="rep", description="Give a rep to a user")
+async def rep(interaction: discord.Interaction, user: discord.Member, message: str):
+    if user == interaction.user:
+        await interaction.response.send_message("❌ You can't rep yourself.", ephemeral=True)
+        return
+
+    async with aiosqlite.connect("bot.db") as db:
+        await db.execute(
+            "INSERT INTO vouches VALUES (?, ?, ?, ?)",
+            (user.id, interaction.user.id, message, datetime.utcnow().isoformat())
+        )
+        await db.commit()
+
+    await interaction.response.send_message(
+        f"✅ Rep given to {user.mention}", ephemeral=True
+    )
+
+@bot.tree.command(name="vouches", description="View user vouches")
+async def vouches(interaction: discord.Interaction, user: discord.Member):
+    async with aiosqlite.connect("bot.db") as db:
+        cursor = await db.execute(
+            "SELECT from_id, message FROM vouches WHERE user_id = ?",
+            (user.id,)
+        )
+        rows = await cursor.fetchall()
+
+    if not rows:
+        await interaction.response.send_message("No vouches yet.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"⭐ Vouches for {user}",
+        color=discord.Color.gold()
+    )
+
+    for from_id, msg in rows[:10]:
+        embed.add_field(
+            name=f"From <@{from_id}>",
+            value=msg,
+            inline=False
+        )
+
+    await interaction.response.send_message(embed=embed)
+
 
 # --- Run bot ---
 bot.run(token, log_handler=handler, log_level=logging.DEBUG)

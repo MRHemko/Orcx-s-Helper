@@ -727,7 +727,7 @@ class SponsorModal(discord.ui.Modal, title="Sponsor Giveaway"):
         embed.add_field(name="IGN", value=self.ign.value)
 
         try:
-            await create_ticket(interaction, "sponsor", embed)
+            await create_ticket(interaction, "sponsor_giveaway", embed)
         except Exception as e:
             await interaction.followup.send(
                 f"❌ Ticket creation failed:\n```{e}```",
@@ -879,7 +879,7 @@ async def create_ticket(
                 manage_channels=True
             )
 
-    channel_name = f"{ticket_type}-{interaction.user.name}".lower().replace(" ", "-")
+    channel_name = f"{ticket_type}-{interaction.user.id}"
 
     channel = await guild.create_text_channel(
         name=channel_name,

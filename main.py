@@ -615,7 +615,7 @@ async def warn_error(ctx, error):
 # CONFIG
 # =========================
 
-TICKET_FORUM_ID = 1457709551716536498
+TICKET_CATEGORY_ID = 1399019150529134602  # <-- OIKEA KATEGORIAN ID
 TRANSCRIPT_LOG_CHANNEL_ID = 1444618133448032388
 
 SUPPORT_ROLE_ID = 1456322413259133173
@@ -629,15 +629,6 @@ STAFF_PINGS = {
     "sponsor_giveaway": STAFF_ROLE_ID,
     "giveaway_claim": STAFF_ROLE_ID,
     "media": STAFF_ROLE_ID
-}
-
-TICKET_TAGS = {
-    "support": 1457710146124910735,
-    "partner": 1457710400287146024,
-    "market": 1457710189196087378,
-    "sponsor_giveaway": 1457710275003158669,
-    "giveaway_claim": 1457710230761771072,
-    "media": 1457710338882535648
 }
 
 TICKET_TYPES = {
@@ -856,50 +847,56 @@ class GiveawayClaimModal(discord.ui.Modal, title="Giveaway Claim"):
 # CREATE TICKET
 # =========================
 
-async def create_ticket(interaction: discord.Interaction, ticket_type: str, embed: discord.Embed):
-    forum = interaction.guild.get_channel(TICKET_FORUM_ID)
+async def create_ticket(
+    interaction: discord.Interaction,
+    ticket_type: str,
+    embed: discord.Embed
+):
+    guild = interaction.guild
+    category = guild.get_channel(TICKET_CATEGORY_ID)
 
-    if forum is None or not isinstance(forum, discord.ForumChannel):
-        await interaction.response.send_message(
-            "❌ Ticket system misconfigured. Please contact staff.",
-            ephemeral=True
+    if category is None or not isinstance(category, discord.CategoryChannel):
+        raise RuntimeError("Ticket category not found or invalid")
+
+    # 🔐 Oikeudet
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True
         )
-        return
+    }
 
-    if not forum:
-        await interaction.response.send_message(
-            "❌ Ticket forum not found.",
-            ephemeral=True
-        )
-        return
+    staff_role_id = STAFF_PINGS.get(ticket_type)
+    if staff_role_id:
+        staff_role = guild.get_role(staff_role_id)
+        if staff_role:
+            overwrites[staff_role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_channels=True
+            )
 
-    applied_tags = []
+    channel_name = f"{ticket_type}-{interaction.user.name}".lower().replace(" ", "-")
 
-    tag_id = TICKET_TAGS.get(ticket_type)
-    if tag_id:
-        tag = discord.utils.get(forum.available_tags, id=tag_id)
-        if tag:
-            applied_tags.append(tag)
-
-    thread = await forum.create_thread(
-        name=f"{TICKET_TYPES[ticket_type]} | {interaction.user}",
-        content=interaction.user.mention,
-        applied_tags=applied_tags
+    channel = await guild.create_text_channel(
+        name=channel_name,
+        category=category,
+        overwrites=overwrites
     )
 
-    await thread.send(embed=embed)
-
-    role_id = STAFF_PINGS.get(ticket_type)
-    if role_id:
-        await thread.send(f"<@&{role_id}>")
-
-    await thread.send(
-        "📌 **New ticket created**",
+    # 📌 Lähetä ticketin sisältö
+    await channel.send(
+        content=f"{interaction.user.mention}",
+        embed=embed,
         view=TicketManageView(interaction.user.id)
     )
 
+    # ✅ Vastaa interactioniin (MODAL SAFE)
     await interaction.followup.send(
-        f"✅ Ticket created: {thread.mention}",
+        f"✅ Ticket created: {channel.mention}",
         ephemeral=True
     )
 
@@ -941,23 +938,69 @@ class TicketManageView(discord.ui.View):
             await interaction.response.send_message("❌ Staff only.", ephemeral=True)
             return
 
+        await interaction.response.defer()
+
+        # 📜 Kerää transcript
         messages = []
         async for msg in interaction.channel.history(oldest_first=True):
-            messages.append(f"[{msg.created_at}] {msg.author}: {msg.content}")
+            messages.append(
+                f"[{msg.created_at.strftime('%Y-%m-%d %H:%M:%S')}] "
+                f"{msg.author}: {msg.content}"
+            )
 
-        transcript = "\n".join(messages)
-        file = discord.File(io.StringIO(transcript), filename="transcript.txt")
+        transcript_text = "\n".join(messages)
+        transcript_file = discord.File(
+            io.StringIO(transcript_text),
+            filename=f"{interaction.channel.name}-transcript.txt"
+        )
 
-        log = interaction.guild.get_channel(TRANSCRIPT_LOG_CHANNEL_ID)
-        embed = discord.Embed(
+        # 📌 Log-kanava
+        log_channel = interaction.guild.get_channel(TRANSCRIPT_LOG_CHANNEL_ID)
+
+        log_embed = discord.Embed(
             title="🔒 Ticket Closed",
             color=discord.Color.red(),
             timestamp=datetime.utcnow()
         )
-        embed.add_field(name="Closed by", value=interaction.user.mention)
-        embed.add_field(name="Owner", value=f"<@{self.owner_id}>")
+        log_embed.add_field(name="Closed by", value=interaction.user.mention)
+        log_embed.add_field(name="Owner", value=f"<@{self.owner_id}>")
+        log_embed.add_field(name="Channel", value=interaction.channel.name)
 
-        await log.send(embed=embed, file=file)
+        if log_channel:
+            await log_channel.send(embed=log_embed, file=transcript_file)
+
+        # 📩 DM käyttäjälle
+        owner = interaction.guild.get_member(self.owner_id)
+        if owner:
+            try:
+                dm_embed = discord.Embed(
+                    title="🎫 Your ticket has been closed",
+                    color=discord.Color.red()
+                )
+                dm_embed.add_field(
+                    name="Server",
+                    value=interaction.guild.name,
+                    inline=False
+                )
+                dm_embed.add_field(
+                    name="Ticket",
+                    value=interaction.channel.name,
+                    inline=False
+                )
+                dm_embed.add_field(
+                    name="Closed by",
+                    value=interaction.user.name,
+                    inline=False
+                )
+                dm_embed.set_footer(
+                    text="Thank you for contacting Orcx's Ocean Support"
+                )
+
+                await owner.send(embed=dm_embed)
+            except discord.Forbidden:
+                pass  # DM:t kiinni → ei kaadeta bottia
+
+        # 🗑 Poista kanava
         await interaction.channel.delete()
 
 # =========================

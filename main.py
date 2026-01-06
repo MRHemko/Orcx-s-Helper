@@ -615,7 +615,7 @@ async def warn_error(ctx, error):
 # CONFIG
 # =========================
 
-TICKET_FORUM_ID = 1399019189729099909
+TICKET_FORUM_ID = 1457709551716536498
 TRANSCRIPT_LOG_CHANNEL_ID = 1444618133448032388
 
 SUPPORT_ROLE_ID = 1456322413259133173
@@ -659,6 +659,8 @@ class SupportModal(discord.ui.Modal, title="Support Ticket"):
     amount = discord.ui.TextInput(label="Amount owed (if refund)", required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         embed = discord.Embed(title="🛠 Support Ticket", color=discord.Color.blurple())
         embed.add_field(name="Reason", value=self.reason.value, inline=False)
         embed.add_field(name="IGN", value=self.ign.value or "N/A")
@@ -674,6 +676,8 @@ class PartnerModal(discord.ui.Modal, title="Partner Application"):
     rules = discord.ui.TextInput(label="Does your server follow DonutSMP rules?")
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         embed = discord.Embed(title="🤝 Partner Application", color=discord.Color.green())
         embed.add_field(name="Members", value=self.members.value)
         embed.add_field(name="Read Requirements", value=self.read.value)
@@ -691,6 +695,8 @@ class MarketModal(discord.ui.Modal, title="Market Ticket"):
     agree = discord.ui.TextInput(label="Agree scamming = ban?")
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         embed = discord.Embed(title="🛒 Market Ticket", color=discord.Color.gold())
         embed.add_field(name="Type", value=self.buy_sell.value)
         embed.add_field(name="Prices Read", value=self.prices.value)
@@ -706,6 +712,8 @@ class SponsorModal(discord.ui.Modal, title="Sponsor Giveaway"):
     ign = discord.ui.TextInput(label="Your IGN")
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         embed = discord.Embed(title="💰 Sponsor Giveaway", color=discord.Color.purple())
         embed.add_field(name="Amount", value=self.amount.value)
         embed.add_field(name="IGN", value=self.ign.value)
@@ -718,6 +726,8 @@ class MediaModal(discord.ui.Modal, title="Media Ticket"):
     proof = discord.ui.TextInput(label="Proof of MC ownership", style=discord.TextStyle.paragraph)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         embed = discord.Embed(title="🎥 Media Ticket", color=discord.Color.teal())
         embed.add_field(name="IGN", value=self.ign.value)
         embed.add_field(name="Proof", value=self.proof.value)
@@ -792,6 +802,8 @@ class GiveawayClaimModal(discord.ui.Modal, title="Giveaway Claim"):
         self.host = host
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         embed = discord.Embed(
             title="🎁 Giveaway Claim",
             color=discord.Color.orange()
@@ -808,7 +820,14 @@ class GiveawayClaimModal(discord.ui.Modal, title="Giveaway Claim"):
 # =========================
 
 async def create_ticket(interaction: discord.Interaction, ticket_type: str, embed: discord.Embed):
-    forum: discord.ForumChannel = interaction.guild.get_channel(TICKET_FORUM_ID)
+    forum = interaction.guild.get_channel(TICKET_FORUM_ID)
+
+    if forum is None or not isinstance(forum, discord.ForumChannel):
+        await interaction.response.send_message(
+            "❌ Ticket system misconfigured. Please contact staff.",
+            ephemeral=True
+        )
+        return
 
     if not forum:
         await interaction.response.send_message(
@@ -818,6 +837,7 @@ async def create_ticket(interaction: discord.Interaction, ticket_type: str, embe
         return
 
     applied_tags = []
+
     tag_id = TICKET_TAGS.get(ticket_type)
     if tag_id:
         tag = discord.utils.get(forum.available_tags, id=tag_id)
@@ -841,7 +861,7 @@ async def create_ticket(interaction: discord.Interaction, ticket_type: str, embe
         view=TicketManageView(interaction.user.id)
     )
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"✅ Ticket created: {thread.mention}",
         ephemeral=True
     )

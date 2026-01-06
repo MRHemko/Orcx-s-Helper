@@ -666,8 +666,13 @@ class SupportModal(discord.ui.Modal, title="Support Ticket"):
         embed.add_field(name="IGN", value=self.ign.value or "N/A")
         embed.add_field(name="Amount", value=self.amount.value or "N/A")
 
-        await create_ticket(interaction, "support", embed)
-
+        try:
+            await create_ticket(interaction, "support", embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Ticket creation failed:\n```{e}```",
+                ephemeral=True
+            )
 
 class PartnerModal(discord.ui.Modal, title="Partner Application"):
     members = discord.ui.TextInput(label="How many members does your server have?")
@@ -684,7 +689,13 @@ class PartnerModal(discord.ui.Modal, title="Partner Application"):
         embed.add_field(name="DonutSMP Related", value=self.donut.value)
         embed.add_field(name="Follows Rules", value=self.rules.value)
 
-        await create_ticket(interaction, "partner", embed)
+        try:
+            await create_ticket(interaction, "partner", embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Ticket creation failed:\n```{e}```",
+                ephemeral=True
+            )
 
 
 class MarketModal(discord.ui.Modal, title="Market Ticket"):
@@ -704,7 +715,13 @@ class MarketModal(discord.ui.Modal, title="Market Ticket"):
         embed.add_field(name="Spawner", value=self.spawner.value)
         embed.add_field(name="Agreement", value=self.agree.value)
 
-        await create_ticket(interaction, "market", embed)
+        try:
+            await create_ticket(interaction, "market", embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Ticket creation failed:\n```{e}```",
+                ephemeral=True
+            )
 
 
 class SponsorModal(discord.ui.Modal, title="Sponsor Giveaway"):
@@ -718,7 +735,14 @@ class SponsorModal(discord.ui.Modal, title="Sponsor Giveaway"):
         embed.add_field(name="Amount", value=self.amount.value)
         embed.add_field(name="IGN", value=self.ign.value)
 
-        await create_ticket(interaction, "sponsor_giveaway", embed)
+        try:
+            await create_ticket(interaction, "sponsor", embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Ticket creation failed:\n```{e}```",
+                ephemeral=True
+            )
+
 
 
 class MediaModal(discord.ui.Modal, title="Media Ticket"):
@@ -732,7 +756,14 @@ class MediaModal(discord.ui.Modal, title="Media Ticket"):
         embed.add_field(name="IGN", value=self.ign.value)
         embed.add_field(name="Proof", value=self.proof.value)
 
-        await create_ticket(interaction, "media", embed)
+        try:
+            await create_ticket(interaction, "media", embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Ticket creation failed:\n```{e}```",
+                ephemeral=True
+            )
+
 
 # =========================
 # GIVEAWAY CLAIM FLOW
@@ -813,7 +844,13 @@ class GiveawayClaimModal(discord.ui.Modal, title="Giveaway Claim"):
         embed.add_field(name="Giveaway Channel", value=self.channel.mention)
         embed.add_field(name="Host", value=self.host.mention)
 
-        await create_ticket(interaction, "giveaway_claim", embed)
+        try:
+            await create_ticket(interaction, "giveaway_claim", embed)
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Ticket creation failed:\n```{e}```",
+                ephemeral=True
+            )
 
 # =========================
 # CREATE TICKET

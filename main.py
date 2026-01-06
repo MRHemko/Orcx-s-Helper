@@ -733,58 +733,44 @@ class GiveawayClaimView(discord.ui.View):
 
     def __init__(self, guild: discord.Guild):
         super().__init__()
+        self.guild = guild
+        self.channel: discord.TextChannel | None = None
+        self.host: discord.Member | None = None
 
-        channel_select = self.children[0]
-        channel_select.options = [
+        # Täytä channel-select
+        self.select_channel.options = [
             discord.SelectOption(label=ch.name, value=str(ch.id))
             for ch in guild.text_channels
             if "giveaway" in ch.name.lower()
         ]
 
+        # Täytä staff-host select
+        self.select_host.options = [
+            discord.SelectOption(label=m.display_name, value=str(m.id))
+            for m in guild.members
+            if any(r.id == STAFF_ROLE_ID for r in m.roles)
+        ]
+
     @discord.ui.select(
         placeholder="Select giveaway channel",
         min_values=1,
-        max_values=1,
-        options=[],  # täytetään dynaamisesti
-        custom_id="giveaway_channel"
+        max_values=1
     )
     async def select_channel(self, interaction: discord.Interaction, select: discord.ui.Select):
-        channel_id = int(select.values[0])
-        channel = interaction.guild.get_channel(channel_id)
-
-        if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message(
-                "❌ Please select a text channel.",
-                ephemeral=True
-            )
-            return
-
-        self.channel = channel
+        self.channel = interaction.guild.get_channel(int(select.values[0]))
         await interaction.response.defer(ephemeral=True)
 
     @discord.ui.select(
         placeholder="Select giveaway host (staff)",
         min_values=1,
-        max_values=1,
-        options=[],
-        custom_id="giveaway_host"
+        max_values=1
     )
     async def select_host(self, interaction: discord.Interaction, select: discord.ui.Select):
-        member_id = int(select.values[0])
-        member = interaction.guild.get_member(member_id)
-
-        if not member or not any(r.id == STAFF_ROLE_ID for r in member.roles):
-            await interaction.response.send_message(
-                "❌ Selected user is not staff.",
-                ephemeral=True
-            )
-            return
-
-        self.host = member
+        self.host = interaction.guild.get_member(int(select.values[0]))
         await interaction.response.defer(ephemeral=True)
 
     @discord.ui.button(label="Continue", style=discord.ButtonStyle.success)
-    async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def continue_button(self, interaction: discord.Interaction, _):
         if not self.channel or not self.host:
             await interaction.response.send_message(
                 "❌ Please select both channel and host.",
@@ -797,24 +783,22 @@ class GiveawayClaimView(discord.ui.View):
         )
 
 class GiveawayClaimModal(discord.ui.Modal, title="Giveaway Claim"):
-    ign = discord.ui.TextInput(label="Your IGN")
-    amount = discord.ui.TextInput(label="Prize amount")
+    ign = discord.ui.TextInput(label="Your IGN", required=True)
+    amount = discord.ui.TextInput(label="Prize amount", required=True)
 
-    def __init__(self, guild: discord.Guild):
+    def __init__(self, channel: discord.TextChannel, host: discord.Member):
         super().__init__()
-
-        channel_select = self.children[0]
-        channel_select.options = [
-            discord.SelectOption(label=ch.name, value=str(ch.id))
-            for ch in guild.text_channels
-            if "giveaway" in ch.name.lower()
-        ]
+        self.channel = channel
+        self.host = host
 
     async def on_submit(self, interaction: discord.Interaction):
-        embed = discord.Embed(title="🎁 Giveaway Claim", color=discord.Color.orange())
-        embed.add_field(name="IGN", value=self.ign.value)
-        embed.add_field(name="Amount", value=self.amount.value)
-        embed.add_field(name="Channel", value=self.channel.mention)
+        embed = discord.Embed(
+            title="🎁 Giveaway Claim",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="IGN", value=self.ign.value, inline=False)
+        embed.add_field(name="Prize", value=self.amount.value, inline=False)
+        embed.add_field(name="Giveaway Channel", value=self.channel.mention)
         embed.add_field(name="Host", value=self.host.mention)
 
         await create_ticket(interaction, "giveaway_claim", embed)
@@ -826,6 +810,13 @@ class GiveawayClaimModal(discord.ui.Modal, title="Giveaway Claim"):
 async def create_ticket(interaction: discord.Interaction, ticket_type: str, embed: discord.Embed):
     forum: discord.ForumChannel = interaction.guild.get_channel(TICKET_FORUM_ID)
 
+    if not forum:
+        await interaction.response.send_message(
+            "❌ Ticket forum not found.",
+            ephemeral=True
+        )
+        return
+
     applied_tags = []
     tag_id = TICKET_TAGS.get(ticket_type)
     if tag_id:
@@ -836,15 +827,17 @@ async def create_ticket(interaction: discord.Interaction, ticket_type: str, embe
     thread = await forum.create_thread(
         name=f"{TICKET_TYPES[ticket_type]} | {interaction.user}",
         content=interaction.user.mention,
-        embed=embed,
         applied_tags=applied_tags
     )
 
+    await thread.send(embed=embed)
+
     role_id = STAFF_PINGS.get(ticket_type)
-    ping = f"<@&{role_id}>" if role_id else ""
+    if role_id:
+        await thread.send(f"<@&{role_id}>")
 
     await thread.send(
-        content=f"{ping}\n📌 **New ticket created**",
+        "📌 **New ticket created**",
         view=TicketManageView(interaction.user.id)
     )
 
@@ -930,9 +923,12 @@ class TicketPanelView(discord.ui.View):
         await interaction.response.send_modal(MarketModal())
 
     @discord.ui.button(label="🎁 Giveaway Claim", style=discord.ButtonStyle.success)
-    async def giveaway_claim(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def giveaway_claim(self, interaction: discord.Interaction, _):
         await interaction.response.send_message(
-    "Please provide giveaway details:", view=GiveawayClaimView(), ephemeral=True)
+            "Please select giveaway details:",
+            view=GiveawayClaimView(interaction.guild),
+            ephemeral=True
+        )
 
     @discord.ui.button(label="🎥 Media", style=discord.ButtonStyle.secondary)
     async def media(self, interaction: discord.Interaction, button: discord.ui.Button):

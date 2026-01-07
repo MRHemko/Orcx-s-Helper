@@ -1382,6 +1382,7 @@ async def vouches(interaction: discord.Interaction, user: discord.Member):
 
     await interaction.response.send_message(embed=embed)
 
+threading.Thread(target=run_web, daemon=True).start()
 
 # --- Run bot ---
 bot.run(token, log_handler=handler, log_level=logging.DEBUG)

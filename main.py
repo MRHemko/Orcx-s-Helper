@@ -1250,9 +1250,9 @@ def spawner_prices_embed() -> discord.Embed:
     embed = discord.Embed(
         title="💵 Spawner Prices",
         description="**(We buy from you)**\n"
-                    "<:Skeleton:1449710743086694400> **Skeleton** — 1.4m each\n\n"
-                    "**(We sell to you)**\n"
                     "<:Skeleton:1449710743086694400> **Skeleton** — 1.6m each\n\n"
+                    "**(We sell to you)**\n"
+                    "<:Skeleton:1449710743086694400> **Skeleton** — 1.85m each\n\n"
                     "## 📌 Read before buying / selling\n"
                     "✦ 🚫 We never go first. *(No exceptions)*\n"
                     "✦ 💵 Prices are **not negotiable**\n"

@@ -20,6 +20,8 @@ import aiohttp
 YOUTUBE_CHANNEL_ID = "UCQOVsPlx7vEP4mEL2usJtMg"
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
+WARN_LOG_CHANNEL_ID = 1458565172737216536  # vaihda oikeaksi channel ID:ksi
+
 
 YT_LIVE_CHANNEL_ID = 1378419827902775488
 YT_PING_ROLE_ID = 1403063948093427974
@@ -524,28 +526,38 @@ phrase_pattern = re.compile(
 
 @bot.event
 async def on_message(message: discord.Message):
+    # 1️⃣ Älä käsittele botteja
     if message.author.bot:
         return
 
+    # 2️⃣ Varmista Member
     if not isinstance(message.author, discord.Member):
+        await bot.process_commands(message)
         return
 
-    # 🔒 Staff bypass
-    if any(role.name in STAFF_ROLES for role in message.author.roles):
+    member = message.author
+
+    # 3️⃣ Staff bypass
+    if any(role.name in STAFF_ROLES for role in member.roles):
         await bot.process_commands(message)
         return
 
     content = message.content
 
+    # 4️⃣ Automod filter
     if word_pattern.search(content) or phrase_pattern.search(content):
         await message.delete()
 
-        member = message.author
-        user_id = str(member.id)
-        now = datetime.utcnow()
-        current_month = now.strftime("%Y-%m")
+        # 1️⃣ Tallenna varoitus tietokantaan
+        await add_warning(
+            user_id=member.id,
+            staff_id=0,  # 0 = automod
+            reason="Inappropriate language"
+        )
 
+        # 2️⃣ Hae päivitetty warn-määrä
         warn_count = await get_monthly_warn_count(member.id)
+
         # 📢 Kanava-ilmoitus
         await message.channel.send(
             f"⚠️ {member.mention}, inappropriate language is not allowed.\n"
@@ -553,7 +565,7 @@ async def on_message(message: discord.Message):
             delete_after=6
         )
 
-        # 📩 DM käyttäjälle
+        # 📩 DM
         try:
             await member.send(
                 f"⚠️ **Automatic Warning**\n\n"
@@ -564,7 +576,49 @@ async def on_message(message: discord.Message):
         except discord.Forbidden:
             pass
 
-        # 🔇 AUTO MUTE (3 warnings)
+
+        log_channel = message.guild.get_channel(WARN_LOG_CHANNEL_ID)
+
+        if log_channel:
+            embed = discord.Embed(
+                title="⚠️ Automatic Warning Issued",
+                color=discord.Color.orange(),
+                timestamp=datetime.utcnow()
+            )
+
+            embed.add_field(
+                name="User",
+                value=f"{member} (`{member.id}`)",
+                inline=False
+            )
+
+            embed.add_field(
+                name="Channel",
+                value=message.channel.mention,
+                inline=True
+            )
+
+            embed.add_field(
+                name="Reason",
+                value="Inappropriate language",
+                inline=True
+            )
+
+            embed.add_field(
+                name="Warnings (this month)",
+                value=f"{warn_count}/{BAN_AT_WARN}",
+                inline=False
+            )
+
+            embed.add_field(
+                name="Message",
+                value=message.content[:1000],
+                inline=False
+            )
+
+            await log_channel.send(embed=embed)
+
+        # 🔇 Auto mute
         if warn_count == MUTE_AT_WARN:
             try:
                 until = datetime.utcnow() + MUTE_DURATION
@@ -575,7 +629,7 @@ async def on_message(message: discord.Message):
             except discord.Forbidden:
                 pass
 
-        # 🔨 AUTO BAN (5 warnings)
+        # 🔨 Auto ban
         elif warn_count >= BAN_AT_WARN:
             try:
                 await member.ban(reason="Reached 5 warnings in one month")
@@ -585,8 +639,9 @@ async def on_message(message: discord.Message):
             except discord.Forbidden:
                 pass
 
-        return
+        return  # ⛔ estä komennot rikkeellisestä viestistä
 
+    # 5️⃣ KÄSITTELE KOMENNOT (TASAN KERRAN)
     await bot.process_commands(message)
 
 # --- Rock Paper Scissors (global slash command) ---
@@ -646,13 +701,19 @@ async def add_warning(user_id, staff_id, reason):
 
 @bot.tree.command(name="warn", description="Warn a user")
 @app_commands.checks.has_permissions(moderate_members=True)
-async def warn(interaction: discord.Interaction, user: discord.Member, reason: str):
+async def warn(
+    interaction: discord.Interaction,
+    user: discord.Member,
+    reason: str
+):
+    # 1️⃣ Tallenna varoitus
     await add_warning(
         user_id=user.id,
         staff_id=interaction.user.id,
         reason=reason
     )
 
+    # 2️⃣ Hae päivitetty määrä
     warn_count = await get_monthly_warn_count(user.id)
 
     await interaction.response.send_message(
@@ -665,11 +726,11 @@ async def warn(interaction: discord.Interaction, user: discord.Member, reason: s
     # 🔇 Auto mute
     if warn_count == MUTE_AT_WARN:
         until = datetime.utcnow() + MUTE_DURATION
-        await user.timeout(until, reason="Reached 3 warnings")
+        await user.timeout(until, reason="Reached warning limit")
 
     # 🔨 Auto ban
     elif warn_count >= BAN_AT_WARN:
-        await user.ban(reason="Reached 5 warnings")
+        await user.ban(reason="Reached warning limit")
 
 @warn.error
 async def warn_error(interaction: discord.Interaction, error):

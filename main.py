@@ -11,17 +11,15 @@ from flask import Flask
 import threading
 from collections import defaultdict
 from datetime import datetime
-import json
-from pathlib import Path
 import io
 import aiosqlite
 from dotenv import load_dotenv
 load_dotenv()
-
 import aiohttp
 
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 YOUTUBE_CHANNEL_ID = "UCQOVsPlx7vEP4mEL2usJtMg"
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+
 
 YT_LIVE_CHANNEL_ID = 1378419827902775488
 YT_PING_ROLE_ID = 1403063948093427974
@@ -44,6 +42,10 @@ async def youtube_live_check():
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             data = await resp.json()
+
+    if "error" in data:
+        print("YouTube API error:", data["error"])
+        return
 
     if not data.get("items"):
         last_live_video_id = None
@@ -78,47 +80,15 @@ async def youtube_live_check():
         allowed_mentions=discord.AllowedMentions(roles=True)
     )
 
-WARN_FILE = Path("warnings.json")
-
 MAX_WARNS_PER_MONTH = 5
 MUTE_AT_WARN = 3
 BAN_AT_WARN = 5
 MUTE_DURATION = timedelta(days=7)
 
-def load_warnings():
-    if WARN_FILE.exists():
-        with open(WARN_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_warnings(data):
-    with open(WARN_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
-
-WARNINGS = load_warnings()
-
-DAILY_FILE = Path("daily.json")
-
-def load_daily():
-    if DAILY_FILE.exists():
-        with open(DAILY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {
-        "message_id": None,
-        "end_time": None,
-        "participants": []
-    }
-
-def save_daily(data):
-    with open(DAILY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
-
-DAILY_DATA = load_daily()
-
 DAILY_GIVEAWAY_CHANNEL_ID = 1400833986934210634
-DAILY_PRIZE = "🎁 3.000.000 on DonutSMP"
+DAILY_PRIZE = "🎁 3,000,000 on DonutSMP"
 DAILY_WINNERS = 1
-DAILY_DURATION = 86400
+DAILY_DURATION = 86400  # 24h
 
 WELCOME_CHANNEL_ID = 1378411602990338058
 
@@ -131,9 +101,6 @@ def home():
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-
-threading.Thread(target=run_web).start()
 
 GUILD_ID = 1378407104632586373
 MY_GUILD = discord.Object(id=GUILD_ID)
@@ -174,137 +141,125 @@ def parse_duration(duration: str) -> int:
         raise ValueError("Invalid duration! Use s, m, h, or d.")
 
 async def start_daily_giveaway():
-    channel = await bot.fetch_channel(DAILY_GIVEAWAY_CHANNEL_ID)
+    channel = bot.get_channel(DAILY_GIVEAWAY_CHANNEL_ID)
     if channel is None:
         return
 
-    participants = [
-        bot.get_user(int(uid))
-        for uid in DAILY_DATA.get("participants", [])
-        if bot.get_user(int(uid)) is not None
-    ]
-
-    end_time = datetime.now(timezone.utc) + timedelta(seconds=DAILY_DURATION)
-    end_timestamp = int(end_time.timestamp())
+    end_time = int((datetime.utcnow() + timedelta(seconds=DAILY_DURATION)).timestamp())
 
     embed = discord.Embed(
         title="🎉 DAILY GIVEAWAY 🎉",
         description=(
             f"🎁 **Prize:** {DAILY_PRIZE}\n"
-            f"⏰ **Ends:** <t:{end_timestamp}:R>\n"
             f"🏆 **Winners:** {DAILY_WINNERS}\n"
-            f"👥 **Entries:** {len(participants)}"
+            f"⏰ **Ends:** <t:{end_time}:R>"
         ),
         color=discord.Color.gold()
     )
 
-    class DailyView(discord.ui.View):
-        def __init__(self):
-            super().__init__(timeout=DAILY_DURATION)
-
-        @discord.ui.button(label="Join", style=discord.ButtonStyle.green, emoji="🎉")
-        async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if str(interaction.user.id) not in DAILY_DATA["participants"]:
-                DAILY_DATA["participants"].append(str(interaction.user.id))
-                save_daily(DAILY_DATA)
-
-                participants.append(interaction.user)
-
-                embed.description = (
-                    f"🎁 **Prize:** {DAILY_PRIZE}\n"
-                    f"⏰ **Ends:** <t:{end_timestamp}:R>\n"
-                    f"🏆 **Winners:** {DAILY_WINNERS}\n"
-                    f"👥 **Entries:** {len(participants)}"
-                )
-                await interaction.message.edit(embed=embed, view=self)
-                await interaction.response.send_message(
-                    "You joined the daily giveaway!", ephemeral=True
-                )
-            else:
-                await interaction.response.send_message(
-                    "You already joined!", ephemeral=True
-                )
-
-    view = DailyView()
+    view = DailyGiveawayView()
     msg = await channel.send(embed=embed, view=view)
 
-    # ✅ tallenna daily state OIKEASSA kohdassa
-    DAILY_DATA["message_id"] = msg.id
-    DAILY_DATA["end_time"] = end_timestamp
-    if "participants" not in DAILY_DATA:
-        DAILY_DATA["participants"] = []
-    save_daily(DAILY_DATA)
+    async with aiosqlite.connect("bot.db") as db:
+        await db.execute("DELETE FROM daily_giveaway")
+        await db.execute("DELETE FROM daily_giveaway_entries")
+        await db.execute(
+            "INSERT INTO daily_giveaway VALUES (?, ?, ?)",
+            (msg.id, channel.id, end_time)
+        )
+        await db.commit()
 
     await asyncio.sleep(DAILY_DURATION)
+    await end_daily_giveaway()
 
-    for item in view.children:
-        item.disabled = True
-    await msg.edit(view=view)
+class DailyGiveawayView(discord.ui.View):
+    timeout = None
 
-    if participants:
-        winner = random.choice(participants)
-        await channel.send(
-            f"🎉 **Daily Giveaway Ended!** 🎉\n"
-            f"Winner: {winner.mention}\n"
-            f"Prize: **{DAILY_PRIZE}**\n"
-            f"Please create a ticket in <#1399019189729099909> to claim your prize!"
+    @discord.ui.button(label="🎉 Join", style=discord.ButtonStyle.green)
+    async def join(self, interaction: discord.Interaction, _):
+        async with aiosqlite.connect("bot.db") as db:
+            cursor = await db.execute(
+                "SELECT 1 FROM daily_giveaway_entries WHERE user_id = ?",
+                (interaction.user.id,)
+            )
+            if await cursor.fetchone():
+                await interaction.response.send_message(
+                    "❌ You already joined today's giveaway.",
+                    ephemeral=True
+                )
+                return
+
+            await db.execute(
+                "INSERT INTO daily_giveaway_entries VALUES (?)",
+                (interaction.user.id,)
+            )
+            await db.commit()
+
+        await interaction.response.send_message(
+            "✅ You joined the daily giveaway!",
+            ephemeral=True
         )
-    else:
-        await channel.send("😢 No one joined today's daily giveaway.")
 
-    # ✅ tyhjennä daily.json VASTA lopussa
-    DAILY_DATA.clear()
-    DAILY_DATA.update({
-        "message_id": None,
-        "end_time": None,
-        "participants": []
-    })
-    save_daily(DAILY_DATA)
+async def end_daily_giveaway():
+    async with aiosqlite.connect("bot.db") as db:
+        cursor = await db.execute(
+            "SELECT user_id FROM daily_giveaway_entries"
+        )
+        users = await cursor.fetchall()
+
+    channel = bot.get_channel(DAILY_GIVEAWAY_CHANNEL_ID)
+
+    if not users:
+        await channel.send("😢 No one joined today's daily giveaway.")
+        return
+
+    winners = random.sample(users, min(DAILY_WINNERS, len(users)))
+    mentions = " ".join(f"<@{u[0]}>" for u in winners)
+
+    await channel.send(
+        f"🎉 **Daily Giveaway Ended!** 🎉\n"
+        f"Winner(s): {mentions}\n"
+        f"Prize: **{DAILY_PRIZE}**\n"
+        f"Create a ticket to claim your prize!"
+    )
 
 @tasks.loop(hours=24)
 async def daily_giveaway_task():
     await start_daily_giveaway()
 
 @daily_giveaway_task.before_loop
-async def before_daily():
+async def before_daily_giveaway():
     await bot.wait_until_ready()
 
-    @bot.event
-    async def on_ready():
-        if not youtube_live_check.is_running():
-            youtube_live_check.start()
-        await bot.add_cog(TicketPanel(bot))
-        await bot.tree.sync(guild=MY_GUILD)
-        await init_db()
-        print("TicketPanel loaded")
-        print("YouTube live checker running")
+@bot.event
+async def on_ready():
+    if not youtube_live_check.is_running():
+        youtube_live_check.start()
 
     if not daily_giveaway_task.is_running():
         daily_giveaway_task.start()
 
-    # ⛔ estä tupla daily
-    if DAILY_DATA.get("end_time"):
-        now = int(datetime.now(timezone.utc).timestamp())
-        if now < DAILY_DATA["end_time"]:
-            print("Daily giveaway already running, skipping start.")
-            return
+    await init_db()
+    await init_daily()
+    await bot.tree.sync(guild=MY_GUILD)
 
-    try:
-        synced = await bot.tree.sync(guild=MY_GUILD)
-        print(f"Synced {len(synced)} guild commands")
-    except Exception as e:
-        print(e)
+    print("✅ Bot ready")
+    print("✅ Daily Giveaway system running")
 
 async def init_db():
     async with aiosqlite.connect("bot.db") as db:
         await db.execute("""
         CREATE TABLE IF NOT EXISTS warnings (
-            user_id INTEGER,
-            reason TEXT,
-            staff_id INTEGER,
-            timestamp TEXT
-        )
-        """)
+                                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                user_id INTEGER
+                                                NOT NULL,
+                                                staff_id INTEGER NOT NULL,
+                                                reason TEXT NOT NULL,
+                                                created_at TEXT NOT NULL
+            )
+            """)
+        await db.commit()
+
         await db.execute("""
         CREATE TABLE IF NOT EXISTS vouches (
             user_id INTEGER,
@@ -313,6 +268,73 @@ async def init_db():
             timestamp TEXT
         )
         """)
+        await db.commit()
+
+async def init_daily():
+    async with aiosqlite.connect("bot.db") as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS daily (
+            user_id INTEGER PRIMARY KEY,
+            last_claim TEXT
+        )
+        """)
+        await db.commit()
+
+        await db.execute("""
+                         CREATE TABLE IF NOT EXISTS daily_giveaway
+                         (
+                             message_id
+                             INTEGER,
+                             channel_id
+                             INTEGER,
+                             end_time
+                             INTEGER
+                         )
+                         """)
+
+        await db.execute("""
+                         CREATE TABLE IF NOT EXISTS daily_giveaway_entries
+                         (
+                             user_id
+                             INTEGER
+                             PRIMARY
+                             KEY
+                         )
+                         """)
+        await db.commit()
+
+async def can_claim_daily(user_id: int):
+    async with aiosqlite.connect("bot.db") as db:
+        cursor = await db.execute(
+            "SELECT last_claim FROM daily WHERE user_id = ?",
+            (user_id,)
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        return True, None  # ei koskaan claimattu
+
+    last_claim = datetime.fromisoformat(row[0])
+    next_claim = last_claim + timedelta(hours=24)
+
+    if datetime.utcnow() >= next_claim:
+        return True, None
+    else:
+        return False, next_claim
+
+async def save_daily_claim(user_id: int):
+    now = datetime.utcnow().isoformat()
+
+    async with aiosqlite.connect("bot.db") as db:
+        await db.execute(
+            """
+            INSERT INTO daily (user_id, last_claim)
+            VALUES (?, ?)
+            ON CONFLICT(user_id)
+            DO UPDATE SET last_claim = excluded.last_claim
+            """,
+            (user_id, now)
+        )
         await db.commit()
 
 @bot.event
@@ -523,16 +545,7 @@ async def on_message(message: discord.Message):
         now = datetime.utcnow()
         current_month = now.strftime("%Y-%m")
 
-        if user_id not in WARNINGS or WARNINGS[user_id]["month"] != current_month:
-            WARNINGS[user_id] = {
-                "month": current_month,
-                "count": 0
-            }
-
-        WARNINGS[user_id]["count"] += 1
-        warn_count = WARNINGS[user_id]["count"]
-        save_warnings(WARNINGS)
-
+        warn_count = await get_monthly_warn_count(member.id)
         # 📢 Kanava-ilmoitus
         await message.channel.send(
             f"⚠️ {member.mention}, inappropriate language is not allowed.\n"
@@ -626,91 +639,44 @@ async def rps(interaction: discord.Interaction, choice: str):
 async def add_warning(user_id, staff_id, reason):
     async with aiosqlite.connect("bot.db") as db:
         await db.execute(
-            "INSERT INTO warnings (user_id, reason, staff_id, timestamp) VALUES (?, ?, ?, ?)",
+            "INSERT INTO warnings (user_id, reason, staff_id, created_at) VALUES (?, ?, ?, ?)",
             (user_id, reason, staff_id, datetime.utcnow().isoformat())
         )
         await db.commit()
 
-@bot.command(name="warn")
-@commands.has_permissions(moderate_members=True)
-async def warn(ctx, member: discord.Member, *, reason: str):
-    if any(role.name in STAFF_ROLES for role in member.roles):
-        await ctx.send("❌ You cannot warn a staff member.")
-        return
-
-    now = datetime.utcnow()
-    current_month = now.strftime("%Y-%m")
-    user_id = str(member.id)
-
-    if user_id not in WARNINGS or WARNINGS[user_id]["month"] != current_month:
-        WARNINGS[user_id] = {
-            "month": current_month,
-            "count": 0
-        }
-
-    WARNINGS[user_id]["count"] += 1
-    save_warnings(WARNINGS)
-
+@bot.tree.command(name="warn", description="Warn a user")
+@app_commands.checks.has_permissions(moderate_members=True)
+async def warn(interaction: discord.Interaction, user: discord.Member, reason: str):
     await add_warning(
-        user_id=member.id,
-        staff_id=ctx.author.id,
+        user_id=user.id,
+        staff_id=interaction.user.id,
         reason=reason
     )
 
-    warn_count = WARNINGS[user_id]["count"]
+    warn_count = await get_monthly_warn_count(user.id)
 
-    # 📩 DM
-    try:
-        await member.send(
-            f"⚠️ **You have received a warning**\n\n"
-            f"Server: **{ctx.guild.name}**\n"
-            f"Reason: **{reason}**\n"
-            f"Warnings this month: **{warn_count}/{BAN_AT_WARN}**"
-        )
-    except discord.Forbidden:
-        pass
-
-    await ctx.send(
-        f"⚠️ {member.mention} warned.\n"
+    await interaction.response.send_message(
+        f"⚠️ {user.mention} warned\n"
         f"Reason: **{reason}**\n"
-        f"Warnings: **{warn_count}/{BAN_AT_WARN}**"
+        f"Warnings this month: **{warn_count}/{BAN_AT_WARN}**",
+        ephemeral=True
     )
 
-    # 🔇 AUTO MUTE (3 warnings)
+    # 🔇 Auto mute
     if warn_count == MUTE_AT_WARN:
         until = datetime.utcnow() + MUTE_DURATION
-        await member.timeout(until, reason="Reached 3 warnings")
+        await user.timeout(until, reason="Reached 3 warnings")
 
-        await ctx.send(
-            f"🔇 {member.mention} muted for **7 days** (3 warnings)."
-        )
-
-        try:
-            await member.send(
-                "🔇 **You have been muted**\n"
-                "Reason: 3 warnings in one month\n"
-                "Duration: 7 days"
-            )
-        except discord.Forbidden:
-            pass
-
-    # 🔨 AUTO BAN (5 warnings)
+    # 🔨 Auto ban
     elif warn_count >= BAN_AT_WARN:
-        await member.ban(reason="Reached 5 warnings in one month")
-        await ctx.send(
-            f"🔨 {member.mention} banned for too many warnings."
-        )
+        await user.ban(reason="Reached 5 warnings")
 
 @warn.error
-async def warn_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command.")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("❌ Usage: !warn @user <reason>")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Invalid user. Mention the user correctly.")
-    else:
-        await ctx.send(f"❌ Error: {error}")
+async def warn_error(interaction: discord.Interaction, error):
+    await interaction.response.send_message(
+        "❌ You don't have permission.",
+        ephemeral=True
+    )
 
 # =========================
 # CONFIG
@@ -1244,28 +1210,41 @@ async def ticketpanel_prefix(ctx):
     embed.set_footer(text="Orcx's Ocean • Support System")
     await ctx.send(embed=embed, view=TicketPanelView())
 
-@bot.command(name="warnings")
-@commands.has_permissions(moderate_members=True)
-async def warnings(ctx, member: discord.Member):
-    user_id = str(member.id)
-    current_month = datetime.utcnow().strftime("%Y-%m")
+@bot.tree.command(name="warnings")
+async def warnings(interaction: discord.Interaction, user: discord.Member):
+    async with aiosqlite.connect("bot.db") as db:
+        cursor = await db.execute(
+            "SELECT reason, staff_id, created_at FROM warnings WHERE user_id = ? ORDER BY created_at DESC",
+            (user.id,)
+        )
+        rows = await cursor.fetchall()
 
-    if user_id not in WARNINGS or WARNINGS[user_id]["month"] != current_month:
-        count = 0
-    else:
-        count = WARNINGS[user_id]["count"]
+    if not rows:
+        await interaction.response.send_message("No warnings.", ephemeral=True)
+        return
 
-    await ctx.send(
-        f"📋 **Warnings for {member}**\n"
-        f"This month: **{count}/{MAX_WARNS_PER_MONTH}**"
+    embed = discord.Embed(
+        title=f"⚠️ Warnings for {user}",
+        color=discord.Color.orange()
     )
 
-@bot.command(name="clearwarns")
-@commands.has_permissions(administrator=True)
-async def clearwarns(ctx, member: discord.Member):
-    WARNINGS.pop(str(member.id), None)
-    save_warnings(WARNINGS)
-    await ctx.send(f"✅ Cleared warnings for {member.mention}.")
+    for reason, staff_id, created in rows[:10]:
+        embed.add_field(
+            name=f"By <@{staff_id}>",
+            value=f"{reason}\n<t:{int(datetime.fromisoformat(created).timestamp())}:R>",
+            inline=False
+        )
+
+    await interaction.response.send_message(embed=embed)
+
+async def get_warn_count(user_id: int):
+    async with aiosqlite.connect("bot.db") as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM warnings WHERE user_id = ?",
+            (user_id,)
+        )
+        (count,) = await cursor.fetchone()
+        return count
 
 def spawner_prices_embed() -> discord.Embed:
     embed = discord.Embed(
@@ -1343,25 +1322,21 @@ async def rules_error(ctx, error):
     if isinstance(error, commands.MissingRole):
         await ctx.send("❌ This command is for staff only.")
 
-async def init_db():
+async def get_monthly_warn_count(user_id: int):
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
     async with aiosqlite.connect("bot.db") as db:
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS warnings (
-            user_id INTEGER,
-            reason TEXT,
-            staff_id INTEGER,
-            timestamp TEXT
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) FROM warnings
+            WHERE user_id = ?
+            AND created_at >= ?
+            """,
+            (user_id, month_start.isoformat())
         )
-        """)
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS vouches (
-            user_id INTEGER,
-            from_id INTEGER,
-            message TEXT,
-            timestamp TEXT
-        )
-        """)
-        await db.commit()
+        (count,) = await cursor.fetchone()
+        return count
+
 
 @bot.tree.command(name="rep", description="Give a rep to a user")
 async def rep(interaction: discord.Interaction, user: discord.Member, message: str):

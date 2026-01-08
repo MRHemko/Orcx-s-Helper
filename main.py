@@ -233,20 +233,25 @@ async def daily_giveaway_task():
 async def before_daily_giveaway():
     await bot.wait_until_ready()
 
-@bot.event
-async def on_ready():
-    if not youtube_live_check.is_running():
-        youtube_live_check.start()
+    @bot.event
+    async def on_ready():
+        await setup(bot)  # ⬅️ TÄMÄ PUUTTUU
 
-    if not daily_giveaway_task.is_running():
-        daily_giveaway_task.start()
+        if not youtube_live_check.is_running():
+            youtube_live_check.start()
 
-    await init_db()
-    await init_daily()
-    await bot.tree.sync(guild=MY_GUILD)
+        if not daily_giveaway_task.is_running():
+            daily_giveaway_task.start()
 
-    print("✅ Bot ready")
-    print("✅ Daily Giveaway system running")
+        await init_db()
+        await init_daily()
+
+        synced = await bot.tree.sync(guild=MY_GUILD)
+        print(f"✅ Synced {len(synced)} slash commands")
+
+        print("✅ Bot ready")
+
+        print("✅ Daily Giveaway system running")
 
 async def init_db():
     async with aiosqlite.connect("bot.db") as db:
@@ -264,11 +269,13 @@ async def init_db():
 
         await db.execute("""
         CREATE TABLE IF NOT EXISTS vouches (
-            user_id INTEGER,
-            from_id INTEGER,
-            message TEXT,
-            timestamp TEXT
-        )
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_id INTEGER NOT NULL,
+    from_id INTEGER NOT NULL,
+    type TEXT NOT NULL, -- 'vouch' tai 'scam'
+    message TEXT,
+    created_at TEXT NOT NULL
+);
         """)
         await db.commit()
 
@@ -1271,7 +1278,7 @@ async def ticketpanel_prefix(ctx):
     embed.set_footer(text="Orcx's Ocean • Support System")
     await ctx.send(embed=embed, view=TicketPanelView())
 
-@bot.tree.command(name="warnings")
+@bot.tree.command(name="warnings", guild=MY_GUILD)
 async def warnings(interaction: discord.Interaction, user: discord.Member):
     async with aiosqlite.connect("bot.db") as db:
         cursor = await db.execute(
@@ -1398,52 +1405,205 @@ async def get_monthly_warn_count(user_id: int):
         (count,) = await cursor.fetchone()
         return count
 
+async def can_give_vouch(from_id: int, vouch_type: str) -> bool:
+    today = datetime.utcnow().date().isoformat()
 
-@bot.tree.command(name="rep", description="Give a rep to a user")
-async def rep(interaction: discord.Interaction, user: discord.Member, message: str):
+    async with aiosqlite.connect("bot.db") as db:
+        cursor = await db.execute(
+            """
+            SELECT 1 FROM vouches
+            WHERE from_id = ?
+            AND type = ?
+            AND DATE(created_at) = ?
+            """,
+            (from_id, vouch_type, today)
+        )
+        return await cursor.fetchone() is None
+
+@bot.tree.command(name="vouch", description="Give a vouch to a user", guild=MY_GUILD)
+async def vouch(
+    interaction: discord.Interaction,
+    user: discord.Member,
+    message: str
+):
     if user == interaction.user:
-        await interaction.response.send_message("❌ You can't rep yourself.", ephemeral=True)
+        await interaction.response.send_message(
+            "❌ You can't vouch yourself.",
+            ephemeral=True
+        )
+        return
+
+    if not await can_give_vouch(interaction.user.id, "vouch"):
+        await interaction.response.send_message(
+            "❌ You can only give **1 vouch per day**.",
+            ephemeral=True
+        )
         return
 
     async with aiosqlite.connect("bot.db") as db:
         await db.execute(
-            "INSERT INTO vouches VALUES (?, ?, ?, ?)",
+            """
+            INSERT INTO vouches (target_id, from_id, type, message, created_at)
+            VALUES (?, ?, 'vouch', ?, ?)
+            """,
             (user.id, interaction.user.id, message, datetime.utcnow().isoformat())
         )
         await db.commit()
 
     await interaction.response.send_message(
-        f"✅ Rep given to {user.mention}", ephemeral=True
+        f"✅ Vouch given to {user.mention}",
+        ephemeral=True
     )
 
-@bot.tree.command(name="vouches", description="View user vouches")
+@bot.tree.command(
+    name="scamvouch",
+    description="Report a user as a scammer",
+    guild=MY_GUILD
+)
+async def scamvouch(
+    interaction: discord.Interaction,
+    user: discord.Member,
+    reason: str
+):
+    if user == interaction.user:
+        await interaction.response.send_message(
+            "❌ You can't scam-vouch yourself.",
+            ephemeral=True
+        )
+        return
+
+    if not await can_give_vouch(interaction.user.id, "scam"):
+        await interaction.response.send_message(
+            "❌ You can only give **1 scam-vouch per day**.",
+            ephemeral=True
+        )
+        return
+
+    async with aiosqlite.connect("bot.db") as db:
+        await db.execute(
+            """
+            INSERT INTO vouches (target_id, from_id, type, message, created_at)
+            VALUES (?, ?, 'scam', ?, ?)
+            """,
+            (
+                user.id,
+                interaction.user.id,
+                reason,
+                datetime.utcnow().isoformat()
+            )
+        )
+        await db.commit()
+
+    # 🔥 TARKISTA SCAMMER-ROOLI
+    await check_and_assign_scammer_role(user)
+
+    await interaction.response.send_message(
+        f"⚠️ Scam-vouch added for {user.mention}",
+        ephemeral=True
+    )
+
+@bot.tree.command(name="vouches", description="View a user's vouches", guild=MY_GUILD)
 async def vouches(interaction: discord.Interaction, user: discord.Member):
     async with aiosqlite.connect("bot.db") as db:
         cursor = await db.execute(
-            "SELECT from_id, message FROM vouches WHERE user_id = ?",
+            """
+            SELECT from_id, type, message, created_at
+            FROM vouches
+            WHERE target_id = ?
+            ORDER BY created_at DESC
+            LIMIT 10
+            """,
             (user.id,)
         )
         rows = await cursor.fetchall()
 
     if not rows:
-        await interaction.response.send_message("No vouches yet.", ephemeral=True)
+        await interaction.response.send_message(
+            "No vouches yet.",
+            ephemeral=True
+        )
         return
 
     embed = discord.Embed(
-        title=f"⭐ Vouches for {user}",
+        title=f"⭐ Vouches — {user}",
         color=discord.Color.gold()
     )
 
-    for from_id, msg in rows[:10]:
+    for from_id, vouch_type, msg, created in rows:
+        icon = "✅" if vouch_type == "vouch" else "⚠️"
         embed.add_field(
-            name=f"From <@{from_id}>",
-            value=msg,
+            name=f"{icon} From <@{from_id}>",
+            value=f"{msg}\n<t:{int(datetime.fromisoformat(created).timestamp())}:R>",
             inline=False
         )
 
     await interaction.response.send_message(embed=embed)
 
-threading.Thread(target=run_web, daemon=True).start()
+SCAMMER_ROLE_ID = 1448328950194638869
+SCAM_LIMIT = 10
+SCAM_LOG_CHANNEL_ID = 123456789012345678
+
+async def get_unique_scam_vouch_count(user_id: int) -> int:
+    async with aiosqlite.connect("bot.db") as db:
+        cursor = await db.execute(
+            """
+            SELECT COUNT(DISTINCT from_id)
+            FROM vouches
+            WHERE target_id = ?
+              AND type = 'scam'
+            """,
+            (user_id,)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+async def check_and_assign_scammer_role(member: discord.Member):
+    scam_count = await get_unique_scam_vouch_count(member.id)
+
+    if scam_count < SCAM_LIMIT:
+        return
+
+    role = member.guild.get_role(SCAMMER_ROLE_ID)
+    if role is None:
+        return
+
+    if role in member.roles:
+        return  # rooli jo annettu
+
+    # 🎭 Anna scammer-rooli
+    await member.add_roles(
+        role,
+        reason=f"Reached {SCAM_LIMIT} unique scam vouches"
+    )
+
+    # 📢 Log-kanava
+    log_channel = member.guild.get_channel(SCAM_LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="🚨 Scammer Role Assigned",
+            color=discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="User",
+            value=f"{member.mention} (`{member.id}`)",
+            inline=False
+        )
+
+        embed.add_field(
+            name="Scam vouches",
+            value=f"{scam_count}/{SCAM_LIMIT}",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Action",
+            value="Scammer role assigned automatically",
+            inline=True
+        )
+
+        await log_channel.send(embed=embed)
 
 # --- Run bot ---
 bot.run(token, log_handler=handler, log_level=logging.DEBUG)

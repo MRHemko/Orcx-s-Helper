@@ -1318,9 +1318,9 @@ def spawner_prices_embed() -> discord.Embed:
     embed = discord.Embed(
         title="💵 Spawner Prices",
         description="**(We buy from you)**\n"
-                    "<:Skeleton:1449710743086694400> **Skeleton** — 1.6m each\n\n"
+                    "<:Skeleton:1449710743086694400> **Skeleton** — 1.7m each\n\n"
                     "**(We sell to you)**\n"
-                    "<:Skeleton:1449710743086694400> **Skeleton** — 1.85m each\n\n"
+                    "<:Skeleton:1449710743086694400> **Skeleton** — 1.9m each\n\n"
                     "## 📌 Read before buying / selling\n"
                     "✦ 🚫 We never go first. *(No exceptions)*\n"
                     "✦ 💵 Prices are **not negotiable**\n"
@@ -1370,7 +1370,7 @@ def rules_embed() -> discord.Embed:
             "• **Quick drop giveaway:** 5 minutes to claim\n"
             "• **Normal giveaway:** 24 hours to claim\n"
             "• Proof of winning is **required** or no payment\n\n"
-            "⚠️ **DO NOT ping** <@1444614803518914752>\n\n"
+            "⚠️ **DO NOT ping** <@1363405221685887038>\n\n"
             "## ❗ If you see someone breaking the rules\n"
             "Make a ticket here: <#1399019189729099909>"
         ),

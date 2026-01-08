@@ -265,11 +265,11 @@ async def init_db():
         await db.execute("""
         CREATE TABLE IF NOT EXISTS vouches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    target_id INTEGER NOT NULL,
-    from_id INTEGER NOT NULL,
-    type TEXT NOT NULL, -- 'vouch' tai 'scam'
+    target_id INTEGER,
+    from_id INTEGER,
+    type TEXT, -- 'vouch' tai 'scam'
     message TEXT,
-    created_at TEXT NOT NULL
+    timestamp TEXT
 );
         """)
         await db.commit()
@@ -1415,7 +1415,7 @@ async def can_give_vouch(from_id: int, vouch_type: str) -> bool:
         )
         return await cursor.fetchone() is None
 
-@bot.tree.command(name="vouch", description="Give a vouch to a user", guild=MY_GUILD)
+@bot.tree.command(name="vouch", guild=MY_GUILD, description="Give a vouch to a user")
 async def vouch(
     interaction: discord.Interaction,
     user: discord.Member,
@@ -1428,32 +1428,51 @@ async def vouch(
         )
         return
 
-    if not await can_give_vouch(interaction.user.id, "vouch"):
-        await interaction.response.send_message(
-            "❌ You can only give **1 vouch per day**.",
-            ephemeral=True
-        )
-        return
-
     async with aiosqlite.connect("bot.db") as db:
         await db.execute(
             """
-            INSERT INTO vouches (target_id, from_id, type, message, created_at)
+            INSERT INTO vouches (target_id, from_id, type, message, timestamp)
             VALUES (?, ?, 'vouch', ?, ?)
             """,
-            (user.id, interaction.user.id, message, datetime.utcnow().isoformat())
+            (
+                user.id,
+                interaction.user.id,
+                message,
+                datetime.utcnow().isoformat()
+            )
         )
         await db.commit()
 
-    await interaction.response.send_message(
-        f"✅ Vouch given to {user.mention}",
-        ephemeral=True
+    embed = discord.Embed(
+        title="✅ User Vouched",
+        color=discord.Color.green(),
+        timestamp=datetime.utcnow()
     )
+
+    embed.add_field(
+        name="Vouched User",
+        value=user.mention,
+        inline=False
+    )
+
+    embed.add_field(
+        name="Vouched By",
+        value=interaction.user.mention,
+        inline=False
+    )
+
+    embed.add_field(
+        name="Message",
+        value=message,
+        inline=False
+    )
+
+    await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(
     name="scamvouch",
-    description="Report a user as a scammer",
-    guild=MY_GUILD
+    guild=MY_GUILD,
+    description="Give a scam vouch to a user"
 )
 async def scamvouch(
     interaction: discord.Interaction,
@@ -1467,17 +1486,10 @@ async def scamvouch(
         )
         return
 
-    if not await can_give_vouch(interaction.user.id, "scam"):
-        await interaction.response.send_message(
-            "❌ You can only give **1 scam-vouch per day**.",
-            ephemeral=True
-        )
-        return
-
     async with aiosqlite.connect("bot.db") as db:
         await db.execute(
             """
-            INSERT INTO vouches (target_id, from_id, type, message, created_at)
+            INSERT INTO vouches (target_id, from_id, type, message, timestamp)
             VALUES (?, ?, 'scam', ?, ?)
             """,
             (
@@ -1489,13 +1501,34 @@ async def scamvouch(
         )
         await db.commit()
 
-    # 🔥 TARKISTA SCAMMER-ROOLI
-    await check_and_assign_scammer_role(user)
-
-    await interaction.response.send_message(
-        f"⚠️ Scam-vouch added for {user.mention}",
-        ephemeral=True
+    embed = discord.Embed(
+        title="🚨 User Scam Vouched",
+        color=discord.Color.red(),
+        timestamp=datetime.utcnow()
     )
+
+    embed.add_field(
+        name="Reported User",
+        value=user.mention,
+        inline=False
+    )
+
+    embed.add_field(
+        name="Reported By",
+        value=interaction.user.mention,
+        inline=False
+    )
+
+    embed.add_field(
+        name="Reason",
+        value=reason,
+        inline=False
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+    # 🔍 Tarkista scammer-rooli
+    await check_and_assign_scammer_role(user)
 
 @bot.tree.command(name="vouches", description="View a user's vouches", guild=MY_GUILD)
 async def vouches(interaction: discord.Interaction, user: discord.Member):

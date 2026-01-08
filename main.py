@@ -88,9 +88,17 @@ BAN_AT_WARN = 5
 MUTE_DURATION = timedelta(days=7)
 
 DAILY_GIVEAWAY_CHANNEL_ID = 1400833986934210634
-DAILY_PRIZE = "🎁 3,000,000 on DonutSMP"
+DAILY_PRIZE = "🎁 5,000,000 on DonutSMP"
 DAILY_WINNERS = 1
 DAILY_DURATION = 86400  # 24h
+GIVEAWAY_PING_ROLE_ID = 1403064172627103846  # vaihda oikeaan
+GIVEAWAY_CUSTOM_MESSAGE = (
+    "🎉 **Daily Giveaway is live!** 🎉\n"
+    "Click the button below to participate.\n"
+    "Good luck everyone! 🍀"
+)
+GIVEAWAY_HOST_ID = 1363405221685887038  # OWNER user ID
+GIVEAWAY_HOST_NAME = "OrcxYT"
 
 WELCOME_CHANNEL_ID = 1378411602990338058
 
@@ -144,23 +152,40 @@ def parse_duration(duration: str) -> int:
 
 async def start_daily_giveaway():
     channel = bot.get_channel(DAILY_GIVEAWAY_CHANNEL_ID)
-    if channel is None:
+    if not channel:
         return
 
     end_time = int((datetime.utcnow() + timedelta(seconds=DAILY_DURATION)).timestamp())
+    role = channel.guild.get_role(GIVEAWAY_PING_ROLE_ID)
 
     embed = discord.Embed(
-        title="🎉 DAILY GIVEAWAY 🎉",
-        description=(
-            f"🎁 **Prize:** {DAILY_PRIZE}\n"
-            f"🏆 **Winners:** {DAILY_WINNERS}\n"
-            f"⏰ **Ends:** <t:{end_time}:R>"
-        ),
-        color=discord.Color.gold()
+        title="🎉 DAILY GIVEAWAY",
+        color=discord.Color.green(),
+        timestamp=datetime.utcnow()
+    )
+
+    embed.add_field(name="🎁 Prize", value=DAILY_PRIZE, inline=True)
+    embed.add_field(name="🏆 Winners", value=str(DAILY_WINNERS), inline=True)
+    embed.add_field(name="🎟 Entries", value="0", inline=True)
+    embed.add_field(name="⏰ Ends", value=f"<t:{end_time}:R>", inline=False)
+
+    embed.add_field(
+        name="👤 Hosted by",
+        value=f"<@{GIVEAWAY_HOST_ID}> | {GIVEAWAY_HOST_NAME}",
+        inline=False
     )
 
     view = DailyGiveawayView()
-    msg = await channel.send(embed=embed, view=view)
+
+    msg = await channel.send(
+        content=(
+            f"{role.mention if role else ''}\n"
+            f"{GIVEAWAY_CUSTOM_MESSAGE}"
+        ),
+        embed=embed,
+        view=view,
+        allowed_mentions=discord.AllowedMentions(roles=True)
+    )
 
     async with aiosqlite.connect("bot.db") as db:
         await db.execute("DELETE FROM daily_giveaway")
@@ -177,8 +202,9 @@ async def start_daily_giveaway():
 class DailyGiveawayView(discord.ui.View):
     timeout = None
 
-    @discord.ui.button(label="🎉 Join", style=discord.ButtonStyle.green)
-    async def join(self, interaction: discord.Interaction, _):
+    @discord.ui.button(label="🎉 Join Giveaway", style=discord.ButtonStyle.green)
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+
         async with aiosqlite.connect("bot.db") as db:
             cursor = await db.execute(
                 "SELECT 1 FROM daily_giveaway_entries WHERE user_id = ?",
@@ -186,7 +212,7 @@ class DailyGiveawayView(discord.ui.View):
             )
             if await cursor.fetchone():
                 await interaction.response.send_message(
-                    "❌ You already joined today's giveaway.",
+                    "❌ You already joined this giveaway.",
                     ephemeral=True
                 )
                 return
@@ -197,8 +223,25 @@ class DailyGiveawayView(discord.ui.View):
             )
             await db.commit()
 
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM daily_giveaway_entries"
+            )
+            (count,) = await cursor.fetchone()
+
+        # 🔄 Päivitä embed entry-countilla
+        message = interaction.message
+        embed = message.embeds[0]
+        embed.set_field_at(
+            2,
+            name="🎟 Entries",
+            value=str(count),
+            inline=True
+        )
+
+        await message.edit(embed=embed)
+
         await interaction.response.send_message(
-            "✅ You joined the daily giveaway!",
+            "✅ You joined the giveaway!",
             ephemeral=True
         )
 
@@ -207,22 +250,45 @@ async def end_daily_giveaway():
         cursor = await db.execute(
             "SELECT user_id FROM daily_giveaway_entries"
         )
-        users = await cursor.fetchall()
+        users = [u[0] for u in await cursor.fetchall()]
 
     channel = bot.get_channel(DAILY_GIVEAWAY_CHANNEL_ID)
 
     if not users:
-        await channel.send("😢 No one joined today's daily giveaway.")
+        await channel.send("😢 No one joined today's giveaway.")
         return
 
     winners = random.sample(users, min(DAILY_WINNERS, len(users)))
-    mentions = " ".join(f"<@{u[0]}>" for u in winners)
+    mentions = " ".join(f"<@{u}>" for u in winners)
 
     await channel.send(
-        f"🎉 **Daily Giveaway Ended!** 🎉\n"
-        f"Winner(s): {mentions}\n"
-        f"Prize: **{DAILY_PRIZE}**\n"
-        f"Create a ticket to claim your prize!"
+        f"🎉 **DAILY GIVEAWAY ENDED!**\n"
+        f"🏆 Winner(s): {mentions}\n"
+        f"🎁 Prize: **{DAILY_PRIZE}**"
+        f"create <#1399019189729099909> to claim your price"
+    )
+
+@bot.tree.command(name="reroll", description="Reroll the daily giveaway")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def reroll(interaction: discord.Interaction):
+
+    async with aiosqlite.connect("bot.db") as db:
+        cursor = await db.execute(
+            "SELECT user_id FROM daily_giveaway_entries"
+        )
+        users = [u[0] for u in await cursor.fetchall()]
+
+    if not users:
+        await interaction.response.send_message(
+            "❌ No entries to reroll.",
+            ephemeral=True
+        )
+        return
+
+    winner = random.choice(users)
+
+    await interaction.response.send_message(
+        f"🔁 **REROLL WINNER:** <@{winner}> 🎉"
     )
 
 @tasks.loop(hours=24)

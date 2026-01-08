@@ -229,29 +229,24 @@ async def end_daily_giveaway():
 async def daily_giveaway_task():
     await start_daily_giveaway()
 
-@daily_giveaway_task.before_loop
-async def before_daily_giveaway():
-    await bot.wait_until_ready()
+@bot.event
+async def on_ready():
+    await setup(bot)
 
-    @bot.event
-    async def on_ready():
-        await setup(bot)  # ⬅️ TÄMÄ PUUTTUU
+    if not youtube_live_check.is_running():
+        youtube_live_check.start()
 
-        if not youtube_live_check.is_running():
-            youtube_live_check.start()
+    if not daily_giveaway_task.is_running():
+        daily_giveaway_task.start()
 
-        if not daily_giveaway_task.is_running():
-            daily_giveaway_task.start()
+    await init_db()
+    await init_daily()
 
-        await init_db()
-        await init_daily()
+    synced = await bot.tree.sync(guild=MY_GUILD)
+    print(f"✅ Synced {len(synced)} slash commands")
 
-        synced = await bot.tree.sync(guild=MY_GUILD)
-        print(f"✅ Synced {len(synced)} slash commands")
+    print(f"✅ Logged in as {bot.user}")
 
-        print("✅ Bot ready")
-
-        print("✅ Daily Giveaway system running")
 
 async def init_db():
     async with aiosqlite.connect("bot.db") as db:

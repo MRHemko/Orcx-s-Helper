@@ -1605,5 +1605,6 @@ async def check_and_assign_scammer_role(member: discord.Member):
 
         await log_channel.send(embed=embed)
 
+threading.Thread(target=run_web).start()
 # --- Run bot ---
 bot.run(token, log_handler=handler, log_level=logging.DEBUG)

@@ -93,7 +93,7 @@ DAILY_WINNERS = 1
 DAILY_DURATION = 86400  # 24h
 GIVEAWAY_PING_ROLE_ID = 1403064172627103846  # vaihda oikeaan
 GIVEAWAY_CUSTOM_MESSAGE = (
-    "🎉 **Daily Giveaway is live!** 🎉\n"
+    "🎉 **Daily Giveaway started!** 🎉\n"
     "Click the button below to participate.\n"
     "Good luck everyone! 🍀"
 )
@@ -955,6 +955,12 @@ class MediaModal(discord.ui.Modal, title="Media Ticket"):
 # =========================
 # GIVEAWAY CLAIM FLOW
 # =========================#
+
+ALLOWED_GIVEAWAY_CHANNEL_IDS = [
+    1378407284090077204,  # giveaway
+    1400833986934210634,  # daily giveaway
+    1441413547082121379   # quick drops
+]
 
 class GiveawayClaimView(discord.ui.View):
     timeout = 300

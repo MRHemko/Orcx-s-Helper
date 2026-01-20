@@ -1,5 +1,0 @@
-discord.py
-aiohttp
-flask
-python-dotenv
-aiosqlite

@@ -1,0 +1,5 @@
+APPLICATION_ROLES = {
+    "staff": 1444614803518914752,
+    "partner_manager": 1456322513637212373,
+    "chat_mod": 1456322413259133173
+}

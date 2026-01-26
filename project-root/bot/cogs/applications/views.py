@@ -1,5 +1,6 @@
-from main import cooldowns
-from config.roles import APPLICATION_ROLES
+import discord
+from config import APPLICATION_COOLDOWN_HOURS
+from config import APPLICATION_ROLES
 
 @discord.ui.button(label="🛡 Staff Application", style=discord.ButtonStyle.primary)
 async def staff(self, interaction: discord.Interaction, button: discord.ui.Button):

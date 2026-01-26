@@ -1,8 +1,9 @@
+import discord
 from .modals import CloseReasonModal
-from views.ticket_close_view import CloseReasonModal
-from services.sla_service import start_sla, end_sla
-from services.staff_stats import log_ticket_close
-from services.sla_service import end_sla_seconds, format_duration
+from .views.ticket_close_view import CloseReasonModal
+from bot.services.sla_service import start_sla, end_sla
+from bot.services.staff_stats import log_ticket_close
+from bot.services.sla_service import end_sla_seconds, format_duration
 
 class TicketManageView(discord.ui.View):
     timeout = None
@@ -89,12 +90,12 @@ class TicketManageView(discord.ui.View):
         )
 
             # 📜 Transcript
-            messages = []
-            async for msg in channel.history(oldest_first=True):
-                messages.append(
-                    f"[{msg.created_at.strftime('%Y-%m-%d %H:%M:%S')}] "
-                    f"{msg.author}: {msg.content}"
-                )
+        messages = []
+        async for msg in channel.history(oldest_first=True):
+            messages.append(
+                f"[{msg.created_at.strftime('%Y-%m-%d %H:%M:%S')}] "
+                f"{msg.author}: {msg.content}"
+            )
 
             transcript_text = "\n".join(messages)
             transcript_file = discord.File(

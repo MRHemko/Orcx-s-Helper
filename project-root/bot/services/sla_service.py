@@ -6,6 +6,9 @@ def start_sla():
 def end_sla_seconds(start):
     return int((datetime.utcnow() - start).total_seconds())
 
+def end_sla(start):
+    return format_duration(end_sla_seconds(start))
+
 def format_duration(seconds: int):
     h = seconds // 3600
     m = (seconds % 3600) // 60

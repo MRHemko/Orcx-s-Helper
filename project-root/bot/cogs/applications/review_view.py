@@ -1,7 +1,7 @@
 import discord
 from datetime import datetime
-from bot.config import APPLICATION_ROLES, STAFF_ROLE_ID
-from bot.config import (
+from config import APPLICATION_ROLES, STAFF_ROLE_ID
+from config import (
     APPLICATION_ACCEPTED_CHANNEL_ID,
     APPLICATION_REJECTED_CHANNEL_ID
 )

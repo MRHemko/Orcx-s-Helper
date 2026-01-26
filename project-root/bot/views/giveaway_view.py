@@ -1,6 +1,6 @@
 import discord
-from services.giveaway_service import add_entry, entry_count
-from cogs.giveaway import build_giveaway_embed, get_end_time
+from bot.services.giveaway_services import add_entry, entry_count
+from bot.utils.giveaway_utils import build_giveaway_embed
 
 class DailyGiveawayView(discord.ui.View):
     timeout = None

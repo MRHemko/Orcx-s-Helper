@@ -1,6 +1,9 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
 from .modals import *
 from .giveaway_claim import GiveawayClaimView
-from .embeds import ticket_panel_embed
+from .embeds import embed
 
 class TicketPanelView(discord.ui.View):
     timeout = None
@@ -47,7 +50,7 @@ class TicketPanel(commands.Cog):
 async def setup(bot):
     await bot.add_cog(TicketPanel(bot))
 
-@bot.command(name="ticketpanel")
+@app_commands.command(name="ticketpanel")
 @commands.has_permissions(administrator=True)
 async def ticketpanel_prefix(ctx):
     embed = discord.Embed(

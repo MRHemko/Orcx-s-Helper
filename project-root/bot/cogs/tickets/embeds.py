@@ -1,3 +1,5 @@
+import discord
+
 embed = discord.Embed(
     title="🎫 Orcx's Ocean — Ticket Center",
     description=(

@@ -1,3 +1,5 @@
+import discord
+
 class SupportModal(discord.ui.Modal, title="Support Ticket"):
     reason = discord.ui.TextInput(label="Why do you need support?", required=True)
     ign = discord.ui.TextInput(label="IGN (if refund)", required=False)

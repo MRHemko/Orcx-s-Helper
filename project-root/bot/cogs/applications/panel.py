@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord.ui import View, Button
 from .dm_flow import start_application
-from utils.application_cooldown import check_cooldown, set_cooldown
+from bot.utils.cooldown import check_cooldown, set_cooldown
 import math
 
 class ApplicationPanel(discord.ui.View):

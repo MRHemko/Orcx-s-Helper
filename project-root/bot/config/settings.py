@@ -1,4 +1,5 @@
 # daily giveaway config
+from config import APPLICATION_COOLDOWN_HOURS
 
 DAILY_GIVEAWAY_DURATION = 86400
 DAILY_WINNERS = 1
@@ -33,3 +34,5 @@ APPLICATION_NAMES = {
     "chatmod": "💬 Chat Moderator Application",
     "partner manager": "🤝 Partner Manager Application"
 }
+
+APPLICATION_COOLDOWN_HOURS = 336

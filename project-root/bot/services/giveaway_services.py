@@ -1,7 +1,7 @@
 import random
 import aiosqlite
 from datetime import datetime
-from database import DB_NAME
+from bot.database import DB_NAME
 
 async def get_entries():
     async with aiosqlite.connect(DB_NAME) as db:

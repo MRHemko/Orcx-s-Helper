@@ -1,23 +1,25 @@
-from config import *
+import discord
+from bot.config import *
 from .manage import TicketManageView
-from database.tickets import DB
+from bot.database.tickets import DB
 from datetime import datetime
 
-async with aiosqlite.connect(DB) as db:
-    await db.execute(
-        """
-        INSERT INTO ticket_stats
-        (channel_id, owner_id, ticket_type, opened_at)
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            channel.id,
-            interaction.user.id,
-            ticket_type,
-            datetime.utcnow().isoformat()
+async def create_ticket(DB, user_id, category):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(
+            """
+            INSERT INTO ticket_stats
+                (channel_id, owner_id, ticket_type, opened_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                channel.id,
+                interaction.user.id,
+                ticket_type,
+                datetime.utcnow().isoformat()
+            )
         )
-    )
-    await db.commit()
+        await db.commit()
 
 async def create_ticket(
     interaction: discord.Interaction,

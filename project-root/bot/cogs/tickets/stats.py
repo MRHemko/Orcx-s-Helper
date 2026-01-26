@@ -1,8 +1,8 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from services.staff_stats import get_staff_stats
-from services.sla_service import format_duration
+from bot.services.staff_stats import get_staff_stats
+from bot.services.sla_service import format_duration
 
 class TicketStats(commands.Cog):
     def __init__(self, bot):

@@ -1,3 +1,7 @@
+import discord
+from discord.ext import commands
+from .manage import TicketManageView
+
 class TicketEvents(commands.Cog):
     def __init__(self, bot):
         self.bot = bot

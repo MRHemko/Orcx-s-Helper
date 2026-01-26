@@ -1,3 +1,4 @@
+import discord
 ALLOWED_GIVEAWAY_CHANNEL_IDS = [
     1378407284090077204,  # giveaway
     1400833986934210634,  # daily giveaway

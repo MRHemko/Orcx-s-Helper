@@ -2,8 +2,8 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from config import *
-from services.moderation_service import lock_channel, unlock_channel
+from bot.config import *
+from bot.services.moderation_service import lock_channel, unlock_channel
 
 class Moderation(commands.Cog):
     def __init__(self, bot):
